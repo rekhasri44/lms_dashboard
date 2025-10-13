@@ -1,0 +1,249 @@
+.student-management {
+    display: flex;
+  padding: 24px;
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+.right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-left: 256px;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.sm-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.sm-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.notification-dot {
+  width: 8px;
+  height: 8px;
+  background: #fbbf24;
+  border-radius: 50%;
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #3b82f6;
+}
+
+.sm-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.sm-stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.sm-stat-label {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.sm-stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 8px;
+}
+
+.sm-stat-change {
+  font-size: 13px;
+}
+
+.sm-stat-change.positive {
+  color: #10b981;
+}
+
+.sm-stat-change.negative {
+  color: #ef4444;
+}
+
+.sm-directory {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.sm-directory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.sm-directory-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.sm-directory-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.sm-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sm-btn-secondary {
+  background: white;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+}
+
+.sm-btn-secondary:hover {
+  background: #f9fafb;
+}
+
+.sm-btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.sm-btn-primary:hover {
+  background: #2563eb;
+}
+
+.sm-search {
+  margin-bottom: 20px;
+}
+
+.sm-search input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.sm-table {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sm-table-header {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 0.8fr 0.8fr 1fr 1fr;
+  gap: 16px;
+  padding: 12px 16px;
+  background: #f9fafb;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.sm-table-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 0.8fr 0.8fr 1fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  border-top: 1px solid #e5e7eb;
+  align-items: center;
+}
+
+.sm-student-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.sm-student-name {
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.sm-student-id {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+.sm-student-email {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.sm-gpa-good {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.sm-gpa-low {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.sm-status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.sm-status-badge.active {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.sm-status-badge.probation {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.sm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.sm-action-btn {
+  padding: 6px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.2s;
+}
+
+.sm-action-btn:hover {
+  background: #f9fafb;
+  color: #374151;
+}

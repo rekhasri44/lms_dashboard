@@ -1,0 +1,289 @@
+.course-management {
+  padding: 24px;
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+
+.cm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.cm-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.cm-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cm-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.cm-stat-card {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.cm-stat-label {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.cm-stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 8px;
+}
+
+.cm-stat-change {
+  font-size: 13px;
+}
+
+.cm-stat-change.positive {
+  color: #10b981;
+}
+
+.cm-stat-change.neutral {
+  color: #6b7280;
+}
+
+.cm-catalog {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.cm-catalog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.cm-catalog-header h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.cm-catalog-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.cm-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cm-btn-secondary {
+  background: white;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+}
+
+.cm-btn-secondary:hover {
+  background: #f9fafb;
+}
+
+.cm-btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.cm-btn-primary:hover {
+  background: #2563eb;
+}
+
+.cm-search {
+  margin-bottom: 20px;
+}
+
+.cm-search input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.cm-table {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cm-table-header {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1.3fr 1.2fr 0.8fr 0.8fr 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f9fafb;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.cm-table-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1.3fr 1.2fr 0.8fr 0.8fr 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 16px;
+  border-top: 1px solid #e5e7eb;
+  align-items: center;
+}
+
+.cm-course-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.cm-course-code {
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+}
+
+.cm-course-name {
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.cm-course-meta {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.cm-schedule {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.cm-enrollment-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.cm-enrollment-bar {
+  width: 100%;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.cm-enrollment-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #2563eb);
+  border-radius: 3px;
+}
+
+.cm-enrollment-percent {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.cm-waitlist {
+  font-size: 13px;
+  color: #f59e0b;
+}
+
+.cm-rating {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.cm-difficulty-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cm-difficulty-badge.beginner {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.cm-difficulty-badge.intermediate {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.cm-difficulty-badge.advanced {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.cm-status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cm-status-badge.full {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.cm-status-badge.open {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.cm-status-badge.nearly-full {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.cm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cm-action-btn {
+  padding: 6px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #6b7280;
+  transition: all 0.2s;
+}
+
+.cm-action-btn:hover {
+  background: #f9fafb;
+  color: #374151;
+}
