@@ -16,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import logging
 from logging.handlers import RotatingFileHandler
 from urllib.parse import urlparse
+from waitress import serve
 
 app = Flask(__name__)
 
