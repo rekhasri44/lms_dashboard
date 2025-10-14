@@ -3071,23 +3071,8 @@ def init_sample_data():
             app.logger.error(f"❌ Error creating sample data: {e}")
 
 if __name__ == '__main__':
-    # Initialize database and sample data
     with app.app_context():
         db.create_all()
         init_sample_data()
-    
-    # Production configuration
     port = int(os.environ.get('PORT', 5000))
-    debug_mode = os.environ.get('FLASK_ENV') != 'production'
-    
-    print("=" * 50)
-    print("EDUCATIONAL DASHBOARD API - ENTERPRISE READY")
-    print("=" * 50)
-    print(f"Status: {'🚀 PRODUCTION' if not debug_mode else '🔧 DEVELOPMENT'}")
-    print(f"URL:    http://0.0.0.0:{port}")
-    print("Security: ✅ Input validation, rate limiting, logging")
-    print("Database: ✅ Connection pooling enabled")
-    print("Ready for production deployment!")
-    print("=" * 50)
-    
-    app.run(debug=debug_mode, host='0.0.0.0', port=port)
+    app.run(debug=False, host='0.0.0.0', port=port)
