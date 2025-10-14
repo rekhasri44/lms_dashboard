@@ -3070,8 +3070,7 @@ def init_sample_data():
             db.session.rollback()
             app.logger.error(f"❌ Error creating sample data: {e}")
 
- 
- if __name__ == '__main__':
+if __name__ == '__main__':
     # Initialize database and sample data
     with app.app_context():
         db.create_all()
@@ -3091,5 +3090,4 @@ def init_sample_data():
     print("Ready for production deployment!")
     print("=" * 50)
     
-    app.run(debug=debug_mode, host='0.0.0.0', port=port) 
-      
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)
