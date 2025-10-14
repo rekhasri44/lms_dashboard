@@ -2920,7 +2920,6 @@ def home():
             'reports': '/api/reports/*'
         }
     })
-
 # Sample Data Initialization
 def init_sample_data():
     """Initialize sample data for testing"""
