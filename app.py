@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import logging
 from logging.handlers import RotatingFileHandler
 from urllib.parse import urlparse
-from waitress import serve
+
 
 app = Flask(__name__)
 
@@ -2920,6 +2920,7 @@ def home():
             'reports': '/api/reports/*'
         }
     })
+
 # Sample Data Initialization
 def init_sample_data():
     """Initialize sample data for testing"""
@@ -3045,11 +3046,11 @@ def init_sample_data():
             db.session.add(alert1)
             
             db.session.commit()
-            app.logger.info("✅ Sample data created successfully!")
+            app.logger.info("Sample data created successfully!")
             
         except Exception as e:
             db.session.rollback()
-            app.logger.error(f"❌ Error creating sample data: {e}")
+            app.logger.error(f"Error creating sample data: {e}")
 
 if __name__ == '__main__':
     with app.app_context():
