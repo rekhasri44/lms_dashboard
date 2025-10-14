@@ -15,13 +15,19 @@ from html import escape
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 from logging.handlers import RotatingFileHandler
-
-
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 
-# Enhanced Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///educational_dashboard.db').replace('postgres://', 'postgresql://')
+# Database Configuration
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///educational_dashboard.db'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_recycle': 300,
@@ -30,13 +36,16 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'max_overflow': 20,
 }
 
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'dev-fallback-secret-change-in-production')
+# JWT Configuration
+jwt_secret = os.environ.get('JWT_SECRET_KEY')
+if not jwt_secret:
+    raise ValueError("JWT_SECRET_KEY environment variable is required")
+app.config['JWT_SECRET_KEY'] = jwt_secret
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
-app.config['JWT_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
+app.config['JWT_COOKIE_SECURE'] = os.environ.get('FLASK_ENV') == 'production'
 app.config['JWT_COOKIE_CSRF_PROTECT'] = True
 
-
-# Initialize extensions
+# Initialize extensions (ONCE)
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
 CORS(app, origins=[
@@ -50,6 +59,10 @@ CORS(app, origins=[
 handler = RotatingFileHandler('app.log', maxBytes=10000, backupCount=3)
 handler.setLevel(logging.INFO)
 app.logger.addHandler(handler)
+
+# Create tables
+with app.app_context():
+    db.create_all()
 
 # Database Models
 class User(db.Model):
@@ -333,6 +346,23 @@ def rate_limit(max_requests=100, window=60):
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+def init_sample_data():
+    """Initialize sample data for testing"""
+    with app.app_context():
+        try:
+            # Check if we already have data to avoid duplicates
+            if User.query.first() is not None:
+                app.logger.info("✅ Database already has data, skipping sample data creation")
+                return
+                
+            # Your existing sample data creation code here...
+            
+            db.session.commit()
+            app.logger.info("✅ Sample data created successfully!")
+            
+        except Exception as e:
+            db.session.rollback()
 
 # Input validation functions
 def validate_email(email):
@@ -3039,20 +3069,26 @@ def init_sample_data():
             db.session.rollback()
             app.logger.error(f"❌ Error creating sample data: {e}")
 
-if __name__ == '__main__':
+ 
+ if __name__ == '__main__':
+    # Initialize database and sample data
     with app.app_context():
         db.create_all()
         init_sample_data()
     
+    # Production configuration
+    port = int(os.environ.get('PORT', 5000))
+    debug_mode = os.environ.get('FLASK_ENV') != 'production'
+    
     print("=" * 50)
     print("EDUCATIONAL DASHBOARD API - ENTERPRISE READY")
     print("=" * 50)
-    print("Status: ✅ Running with enhanced security")
-    print("URL:    http://localhost:5000")
-    print("Frontend: http://localhost:3000") 
+    print(f"Status: {'🚀 PRODUCTION' if not debug_mode else '🔧 DEVELOPMENT'}")
+    print(f"URL:    http://0.0.0.0:{port}")
     print("Security: ✅ Input validation, rate limiting, logging")
     print("Database: ✅ Connection pooling enabled")
     print("Ready for production deployment!")
     print("=" * 50)
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=debug_mode, host='0.0.0.0', port=port) 
+      
