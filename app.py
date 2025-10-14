@@ -348,139 +348,6 @@ def rate_limit(max_requests=100, window=60):
         return decorated_function
     return decorator
 
-# Sample Data Initialization
-def init_sample_data():
-    """Initialize sample data for testing"""
-    with app.app_context():
-        if User.query.first() is not None:
-            return
-            
-        try:
-            admin = User(
-                email='admin@university.edu',
-                password_hash=generate_password_hash('Admin123!'),
-                first_name='System',
-                last_name='Admin',
-                role='admin'
-            )
-            db.session.add(admin)
-            
-            cs_department = Department(
-                name='Computer Science',
-                code='CS',
-                budget=500000.00,
-                student_count=1247,
-                faculty_count=45
-            )
-            db.session.add(cs_department)
-            
-            math_department = Department(
-                name='Mathematics',
-                code='MATH',
-                budget=350000.00,
-                student_count=892,
-                faculty_count=32
-            )
-            db.session.add(math_department)
-            
-            faculty_user = User(
-                email='professor@university.edu',
-                password_hash=generate_password_hash('Professor123!'),
-                first_name='John',
-                last_name='Smith',
-                role='faculty'
-            )
-            db.session.add(faculty_user)
-            
-            faculty = Faculty(
-                user=faculty_user,
-                employee_id='FAC001',
-                department=cs_department,
-                position='professor',
-                salary=85000.00,
-                research_score=4.2,
-                student_satisfaction_score=4.5
-            )
-            db.session.add(faculty)
-            
-            student_user = User(
-                email='student@university.edu', 
-                password_hash=generate_password_hash('Student123!'),
-                first_name='Alice',
-                last_name='Johnson',
-                role='student'
-            )
-            db.session.add(student_user)
-            
-            student = Student(
-                user=student_user,
-                student_id='STU001',
-                department=cs_department,
-                gpa=3.8,
-                status='enrolled',
-                risk_level='low'
-            )
-            db.session.add(student)
-            
-            at_risk_user = User(
-                email='atrisk@university.edu',
-                password_hash=generate_password_hash('AtRisk123!'),
-                first_name='Bob',
-                last_name='Wilson',
-                role='student'
-            )
-            db.session.add(at_risk_user)
-            
-            at_risk_student = Student(
-                user=at_risk_user,
-                student_id='STU002',
-                department=math_department,
-                gpa=2.1,
-                status='enrolled',
-                risk_level='high'
-            )
-            db.session.add(at_risk_student)
-            
-            course1 = Course(
-                code='CS101',
-                title='Introduction to Programming',
-                description='Basic programming concepts and techniques',
-                credits=3,
-                department=cs_department,
-                capacity=30,
-                status='active'
-            )
-            db.session.add(course1)
-            
-            course2 = Course(
-                code='MATH201',
-                title='Calculus II',
-                description='Advanced calculus topics',
-                credits=4,
-                department=math_department,
-                capacity=25,
-                status='active'
-            )
-            db.session.add(course2)
-            
-            alert1 = SystemAlert(
-                title='System Maintenance',
-                message='Scheduled maintenance this weekend',
-                alert_type='info',
-                priority='medium',
-                target_audience='all'
-            )
-            db.session.add(alert1)
-            
-            db.session.commit()
-            app.logger.info("✅ Sample data created successfully!")
-            
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f"❌ Error creating sample data: {e}")
-
-
-
 # Input validation functions
 def validate_email(email):
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -3036,7 +2903,6 @@ def health_check():
             'timestamp': datetime.utcnow().isoformat(),
             'error': str(e)
         }), 503
-
 @app.route('/')
 def home():
     """Root endpoint"""
@@ -3055,7 +2921,136 @@ def home():
         }
     })
 
-
+# Sample Data Initialization
+def init_sample_data():
+    """Initialize sample data for testing"""
+    with app.app_context():
+        if User.query.first() is not None:
+            return
+            
+        try:
+            admin = User(
+                email='admin@university.edu',
+                password_hash=generate_password_hash('Admin123!'),
+                first_name='System',
+                last_name='Admin',
+                role='admin'
+            )
+            db.session.add(admin)
+            
+            cs_department = Department(
+                name='Computer Science',
+                code='CS',
+                budget=500000.00,
+                student_count=1247,
+                faculty_count=45
+            )
+            db.session.add(cs_department)
+            
+            math_department = Department(
+                name='Mathematics',
+                code='MATH',
+                budget=350000.00,
+                student_count=892,
+                faculty_count=32
+            )
+            db.session.add(math_department)
+            
+            faculty_user = User(
+                email='professor@university.edu',
+                password_hash=generate_password_hash('Professor123!'),
+                first_name='John',
+                last_name='Smith',
+                role='faculty'
+            )
+            db.session.add(faculty_user)
+            
+            faculty = Faculty(
+                user=faculty_user,
+                employee_id='FAC001',
+                department=cs_department,
+                position='professor',
+                salary=85000.00,
+                research_score=4.2,
+                student_satisfaction_score=4.5
+            )
+            db.session.add(faculty)
+            
+            student_user = User(
+                email='student@university.edu', 
+                password_hash=generate_password_hash('Student123!'),
+                first_name='Alice',
+                last_name='Johnson',
+                role='student'
+            )
+            db.session.add(student_user)
+            
+            student = Student(
+                user=student_user,
+                student_id='STU001',
+                department=cs_department,
+                gpa=3.8,
+                status='enrolled',
+                risk_level='low'
+            )
+            db.session.add(student)
+            
+            at_risk_user = User(
+                email='atrisk@university.edu',
+                password_hash=generate_password_hash('AtRisk123!'),
+                first_name='Bob',
+                last_name='Wilson',
+                role='student'
+            )
+            db.session.add(at_risk_user)
+            
+            at_risk_student = Student(
+                user=at_risk_user,
+                student_id='STU002',
+                department=math_department,
+                gpa=2.1,
+                status='enrolled',
+                risk_level='high'
+            )
+            db.session.add(at_risk_student)
+            
+            course1 = Course(
+                code='CS101',
+                title='Introduction to Programming',
+                description='Basic programming concepts and techniques',
+                credits=3,
+                department=cs_department,
+                capacity=30,
+                status='active'
+            )
+            db.session.add(course1)
+            
+            course2 = Course(
+                code='MATH201',
+                title='Calculus II',
+                description='Advanced calculus topics',
+                credits=4,
+                department=math_department,
+                capacity=25,
+                status='active'
+            )
+            db.session.add(course2)
+            
+            alert1 = SystemAlert(
+                title='System Maintenance',
+                message='Scheduled maintenance this weekend',
+                alert_type='info',
+                priority='medium',
+                target_audience='all'
+            )
+            db.session.add(alert1)
+            
+            db.session.commit()
+            app.logger.info("✅ Sample data created successfully!")
+            
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"❌ Error creating sample data: {e}")
 
 if __name__ == '__main__':
     with app.app_context():
