@@ -20,6 +20,20 @@ from urllib.parse import urlparse
 
 app = Flask(__name__)
 
+CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,https://your-netlify-app.netlify.app').split(',')
+
+CORS(app, origins=CORS_ORIGINS, supports_credentials=True)
+# Update CORS configuration - REPLACE THIS SECTION
+CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000').split(',')
+
+
+# Initialize CORS with proper configuration
+CORS(app, 
+     origins=CORS_ORIGINS, 
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]) 
+CORS(app)
 # Database Configuration
 database_url = os.environ.get('DATABASE_URL')
 if database_url:
@@ -40,6 +54,10 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 # JWT Configuration
 jwt_secret = os.environ.get('JWT_SECRET_KEY')
 if not jwt_secret:
+    # For development/deployment, use a default but log a warning
+    jwt_secret = 'temporary-dev-secret-key-change-in-production-12345'
+    print("WARNING: Using temporary JWT secret key. Set JWT_SECRET_KEY environment variable for production.")
+if not jwt_secret:
     raise ValueError("JWT_SECRET_KEY environment variable is required")
 app.config['JWT_SECRET_KEY'] = jwt_secret
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
@@ -49,13 +67,10 @@ app.config['JWT_COOKIE_CSRF_PROTECT'] = True
 # Initialize extensions (ONCE)
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
-CORS(app, origins=[
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'https://your-frontend-domain.herokuapp.com',
-    'https://your-frontend-domain.netlify.app'
-])
 
+
+# Update CORS configuration
+CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000,https://your-netlify-app.netlify.app').split(',')
 # Setup logging
 handler = RotatingFileHandler('app.log', maxBytes=10000, backupCount=3)
 handler.setLevel(logging.INFO)
@@ -312,6 +327,64 @@ class StudentIntervention(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     student = db.relationship('Student', backref='interventions')
+
+# Add this function to create demo users
+def create_demo_users():
+    """Create demo users for testing"""
+    try:
+        demo_users = [
+            {
+                'email': 'admin@eduadmin.com',
+                'password': 'admin123', 
+                'first_name': 'Admin',
+                'last_name': 'User',
+                'role': 'admin'
+            },
+            {
+                'email': 'faculty@eduadmin.com',
+                'password': 'faculty123',
+                'first_name': 'Faculty', 
+                'last_name': 'User',
+                'role': 'faculty'
+            },
+            {
+                'email': 'student@eduadmin.com',
+                'password': 'student123',
+                'first_name': 'Student',
+                'last_name': 'User', 
+                'role': 'student'
+            },
+            {
+                'email': 'staff@eduadmin.com',
+                'password': 'staff123',
+                'first_name': 'Staff',
+                'last_name': 'User',
+                'role': 'staff'
+            }
+        ]
+        
+        for user_data in demo_users:
+            if not User.query.filter_by(email=user_data['email']).first():
+                user = User(
+                    email=user_data['email'],
+                    password_hash=generate_password_hash(user_data['password']),
+                    first_name=user_data['first_name'],
+                    last_name=user_data['last_name'],
+                    role=user_data['role']
+                )
+                db.session.add(user)
+                print(f"Created demo user: {user_data['email']}")
+        
+        db.session.commit()
+        print("✅ All demo users created successfully!")
+        
+    except Exception as e:
+        print(f"❌ Error creating demo users: {e}")
+        db.session.rollback()
+
+# Call this function when the app starts
+with app.app_context():
+    create_demo_users()
 
 # Enhanced Rate Limiting with Redis fallback
 class RateLimiter:
@@ -2920,6 +2993,17 @@ def home():
             'reports': '/api/reports/*'
         }
     })
+@app.route('/api/')
+def api_home():
+    return jsonify({
+        "message": "EduAdmin API is running",
+        "version": "1.0.0",
+        "endpoints": {
+            "auth": "/api/auth/login",
+            "students": "/api/students",
+            "courses": "/api/courses"
+        }
+    })
 
 # Sample Data Initialization
 def init_sample_data():
@@ -3058,3 +3142,4 @@ if __name__ == '__main__':
         init_sample_data()
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)
+
