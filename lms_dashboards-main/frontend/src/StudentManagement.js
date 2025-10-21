@@ -4,8 +4,8 @@ import {
   Upload, Eye, AlertTriangle, CheckCircle, X, Save, 
   GraduationCap, User, Mail, BookOpen, Calendar 
 } from 'lucide-react';
-import { studentsAPI, analyticsAPI } from '../services/api';
-import { useApi } from '../hooks/useApi';
+import { studentsAPI, analyticsAPI } from './services/api';
+import useApi from './hooks/useApi';
 import './StudentManagement.css';
 
 // Memoized student row component

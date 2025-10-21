@@ -1,15 +1,70 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   Bell, User, BarChart3, BookOpen, Users, GraduationCap, FileText, Settings,
-  Info, X, CheckCircle, AlertTriangle, Calendar, RefreshCw, Mail, Phone,
-  TrendingUp, Filter, Download, Eye, Send, DollarSign,
-  ArrowUp, ArrowDown, Clock, XCircle
+  Info, X, CheckCircle, AlertTriangle, Calendar, RefreshCw,
+  TrendingUp, Download, Eye, DollarSign,
+  ArrowUp, ArrowDown, Clock
 } from 'lucide-react';
-import { analyticsAPI, systemAPI, studentsAPI, facultyAPI, coursesAPI, reportsAPI } from '../services/api';
-import { useApi } from '../hooks/useApi';
+import { analyticsAPI, systemAPI, studentsAPI, facultyAPI, coursesAPI } from './services/api';
+import useApi from './hooks/useApi';
 import './EduDashboard.css';
 
+// Enterprise Configuration
+const ENTERPRISE_CONFIG = {
+  REFRESH_INTERVAL: 30000, // 30 seconds
+  MAX_RETRY_ATTEMPTS: 3,
+  CACHE_DURATION: 5 * 60 * 1000, // 5 minutes
+  ALERT_DISPLAY_LIMIT: 5,
+  AT_RISK_DISPLAY_LIMIT: 4
+};
+
+// Enhanced Error Boundary for Dashboard
+class DashboardErrorBoundary extends React.Component {
+  state = { hasError: false, error: null, errorContext: null };
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    this.setState({ errorContext: errorInfo });
+    
+    console.error('Dashboard Error Boundary:', error, errorInfo);
+    if (window.monitoringService) {
+      window.monitoringService.captureException(error, {
+        component: 'EduDashboard',
+        errorInfo,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null, errorContext: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="error-container">
+          <div className="error-content">
+            <AlertTriangle size={32} />
+            <h3>Dashboard Unavailable</h3>
+            <p>We encountered an error while loading the dashboard.</p>
+            <button onClick={this.handleReset} className="btn-primary">
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 const EduDashboard = () => {
+  // State Management
   const [dashboardData, setDashboardData] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,59 +74,73 @@ const EduDashboard = () => {
   const [courseEnrollment, setCourseEnrollment] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [systemAlerts, setSystemAlerts] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Real API integration for all dashboard data
-  const { data: overviewData, refetch: refetchOverview } = useApi(
-    () => analyticsAPI.getDashboardOverview()
-  );
+  // Refs for cleanup
+  const refreshIntervalRef = useRef(null);
+  const mountedRef = useRef(true);
 
-  const { data: performanceData, refetch: refetchPerformance } = useApi(
-    () => analyticsAPI.getPerformanceAnalytics()
-  );
-
-  const { data: atRiskData, refetch: refetchAtRisk } = useApi(
-    () => studentsAPI.getAtRiskStudents()
-  );
-
-  const { data: alertsData, refetch: refetchAlerts } = useApi(
-    () => systemAPI.getAlerts()
-  );
-
-  // Original useEffect for initial data fetch
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  // Combine all data when APIs resolve
-  useEffect(() => {
-    if (overviewData && performanceData) {
-      setDashboardData({
-        overview: overviewData,
-        performance: performanceData,
-        atRisk: atRiskData || []
-      });
-      setLoading(false);
+  // Real API integration with enhanced error handling
+  const { 
+    data: overviewData, 
+    loading: overviewLoading, 
+    error: overviewError, 
+    refetch: refetchOverview 
+  } = useApi(
+    useCallback(() => analyticsAPI.getDashboardOverview(), []),
+    {
+      retry: ENTERPRISE_CONFIG.MAX_RETRY_ATTEMPTS,
+      cacheKey: 'dashboard-overview',
+      cacheTimeout: ENTERPRISE_CONFIG.CACHE_DURATION
     }
-  }, [overviewData, performanceData, atRiskData]);
+  );
 
-  useEffect(() => {
-    if (alertsData) {
-      setSystemAlerts(alertsData.slice(0, 5)); // Show only 5 most recent alerts
+  const { 
+    data: performanceData, 
+    loading: performanceLoading, 
+    error: performanceError, 
+    refetch: refetchPerformance 
+  } = useApi(
+    useCallback(() => analyticsAPI.getPerformanceAnalytics(), []),
+    {
+      retry: ENTERPRISE_CONFIG.MAX_RETRY_ATTEMPTS,
+      cacheKey: 'performance-analytics',
+      cacheTimeout: ENTERPRISE_CONFIG.CACHE_DURATION
     }
-  }, [alertsData]);
+  );
 
-  // Simulate real-time updates every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetchOverview();
-      refetchPerformance();
-      refetchAlerts();
-    }, 30000);
+  const { 
+    data: atRiskData, 
+    loading: atRiskLoading, 
+    error: atRiskError, 
+    refetch: refetchAtRisk 
+  } = useApi(
+    useCallback(() => studentsAPI.getAtRiskStudents(), []),
+    {
+      retry: ENTERPRISE_CONFIG.MAX_RETRY_ATTEMPTS,
+      cacheKey: 'at-risk-students',
+      cacheTimeout: ENTERPRISE_CONFIG.CACHE_DURATION
+    }
+  );
 
-    return () => clearInterval(interval);
-  }, []);
+  const { 
+    data: alertsData, 
+    loading: alertsLoading, 
+    error: alertsError, 
+    refetch: refetchAlerts 
+  } = useApi(
+    useCallback(() => systemAPI.getAlerts(), []),
+    {
+      retry: ENTERPRISE_CONFIG.MAX_RETRY_ATTEMPTS,
+      cacheKey: 'system-alerts',
+      cacheTimeout: ENTERPRISE_CONFIG.CACHE_DURATION
+    }
+  );
 
-  const fetchDashboardData = async () => {
+  // Enhanced data fetching with proper error handling
+  const fetchDashboardData = useCallback(async () => {
+    if (!mountedRef.current) return;
+
     try {
       setLoading(true);
       setError('');
@@ -92,14 +161,16 @@ const EduDashboard = () => {
         coursesAPI.getEnrollmentStats()
       ]);
 
-      setDashboardData({
+      const consolidatedData = {
         overview: overviewResponse.data,
         alerts: alertsResponse.data,
         analytics: analyticsResponse.data,
         atRiskStudents: atRiskResponse.data,
         facultyWorkload: workloadResponse.data,
         courseEnrollment: enrollmentResponse.data
-      });
+      };
+
+      setDashboardData(consolidatedData);
 
       // Transform backend alerts to frontend notifications
       const transformedNotifications = alertsResponse.data.map(alert => ({
@@ -118,32 +189,147 @@ const EduDashboard = () => {
       setAtRiskStudents(atRiskResponse.data || []);
       setFacultyWorkload(workloadResponse.data || []);
       setCourseEnrollment(enrollmentResponse.data || []);
+      setLastUpdated(new Date());
+
+      // Track successful data fetch
+      if (window.analyticsService) {
+        window.analyticsService.track('dashboard_data_loaded', {
+          timestamp: new Date().toISOString(),
+          dataSources: 6,
+          recordCount: {
+            alerts: alertsResponse.data.length,
+            atRiskStudents: atRiskResponse.data.length,
+            facultyWorkload: workloadResponse.data.length,
+            courseEnrollment: enrollmentResponse.data.length
+          }
+        });
+      }
 
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
-      setError('Failed to load dashboard data. Please check your backend connection.');
-      setDashboardData(getStaticFallbackData());
-      setNotifications(getStaticNotifications());
-      setAtRiskStudents(getStaticAtRiskStudents());
-      setFacultyWorkload(getStaticFacultyWorkload());
-      setCourseEnrollment(getStaticCourseEnrollment());
-    } finally {
-      setLoading(false);
-    }
-  };
+      const errorMsg = 'Failed to load dashboard data. Please check your backend connection.';
+      setError(errorMsg);
+      
+      // Use fallback data in development
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Using fallback data in development mode');
+        setDashboardData(getStaticFallbackData());
+        setNotifications(getStaticNotifications());
+        setAtRiskStudents(getStaticAtRiskStudents());
+        setFacultyWorkload(getStaticFacultyWorkload());
+        setCourseEnrollment(getStaticCourseEnrollment());
+      }
 
-  // Manual refresh
-  const handleRefresh = () => {
+      // Track data fetch failure
+      if (window.analyticsService) {
+        window.analyticsService.track('dashboard_data_fetch_failed', {
+          error: err.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  // Initial data fetch
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  // Combine API hook data when resolved
+  useEffect(() => {
+    if (overviewData && performanceData) {
+      setDashboardData(prevData => ({
+        ...prevData,
+        overview: overviewData,
+        performance: performanceData,
+        atRisk: atRiskData || []
+      }));
+      setLastUpdated(new Date());
+    }
+  }, [overviewData, performanceData, atRiskData]);
+
+  // System alerts processing
+  useEffect(() => {
+    if (alertsData) {
+      const recentAlerts = alertsData.slice(0, ENTERPRISE_CONFIG.ALERT_DISPLAY_LIMIT);
+      setSystemAlerts(recentAlerts);
+    }
+  }, [alertsData]);
+
+  // Real-time updates with proper cleanup
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refetchOverview();
+      refetchPerformance();
+      refetchAlerts();
+      refetchAtRisk();
+    }, ENTERPRISE_CONFIG.REFRESH_INTERVAL);
+
+    refreshIntervalRef.current = interval;
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, [refetchOverview, refetchPerformance, refetchAlerts, refetchAtRisk]);
+
+  // Component cleanup
+  useEffect(() => {
+    mountedRef.current = true;
+    
+    return () => {
+      mountedRef.current = false;
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Error effect for API errors
+  useEffect(() => {
+    const errors = [overviewError, performanceError, atRiskError, alertsError].filter(Boolean);
+    if (errors.length > 0 && mountedRef.current) {
+      const errorMessages = errors.map(err => err.message).join('; ');
+      setError(`Some data failed to load: ${errorMessages}`);
+    }
+  }, [overviewError, performanceError, atRiskError, alertsError]);
+
+  // Enhanced manual refresh
+  const handleRefresh = useCallback(async () => {
+    if (!mountedRef.current) return;
+
     setLoading(true);
-    Promise.all([
-      refetchOverview(),
-      refetchPerformance(),
-      refetchAtRisk(),
-      refetchAlerts()
-    ]).finally(() => {
-      setLoading(false);
-    });
-  };
+    setError('');
+
+    try {
+      await Promise.all([
+        refetchOverview(),
+        refetchPerformance(),
+        refetchAtRisk(),
+        refetchAlerts()
+      ]);
+      setLastUpdated(new Date());
+
+      // Track manual refresh
+      if (window.analyticsService) {
+        window.analyticsService.track('dashboard_manual_refresh', {
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch (err) {
+      console.error('Refresh failed:', err);
+      setError('Failed to refresh data. Please try again.');
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [refetchOverview, refetchPerformance, refetchAtRisk, refetchAlerts]);
 
   // Generate recent activity from available data
   useEffect(() => {
@@ -154,71 +340,98 @@ const EduDashboard = () => {
           type: 'enrollment',
           message: '15 new students enrolled in Computer Science',
           time: '2 hours ago',
-          icon: '👥'
+          icon: '👥',
+          priority: 'info'
         },
         {
           id: 2,
           type: 'completion',
           message: 'Course "Advanced Algorithms" completed by 92% of students',
           time: '4 hours ago',
-          icon: '🎓'
+          icon: '🎓',
+          priority: 'success'
         },
         {
           id: 3,
           type: 'alert',
           message: 'High dropout risk detected in Physics department',
           time: '6 hours ago',
-          icon: '⚠️'
+          icon: '⚠️',
+          priority: 'warning'
         },
         {
           id: 4,
           type: 'achievement',
           message: 'Faculty research paper published in top journal',
           time: '1 day ago',
-          icon: '📚'
+          icon: '📚',
+          priority: 'info'
         }
       ];
       setRecentActivity(activities);
     }
   }, [dashboardData]);
 
-  // Calculate metrics for display
-  const calculateMetrics = () => {
+  // Calculate metrics for display with error handling
+  const calculateMetrics = useCallback(() => {
     if (!dashboardData) return {};
     
     const { overview, performance, atRisk } = dashboardData;
     
-    return {
-      totalStudents: overview?.total_students || 0,
-      totalFaculty: overview?.total_faculty || 0,
-      totalCourses: overview?.total_courses || 0,
-      passRate: performance?.pass_rate || 0,
-      atRiskCount: atRisk?.length || 0,
-      avgAttendance: performance?.attendance_rate || 0
-    };
-  };
+    try {
+      return {
+        totalStudents: overview?.total_students || 0,
+        totalFaculty: overview?.total_faculty || 0,
+        totalCourses: overview?.total_courses || 0,
+        passRate: performance?.pass_rate || 0,
+        atRiskCount: atRisk?.length || 0,
+        avgAttendance: performance?.attendance_rate || 0,
+        totalDepartments: overview?.total_departments || 0,
+        systemStatus: overview?.system_status || 'operational'
+      };
+    } catch (error) {
+      console.error('Metrics calculation error:', error);
+      return {
+        totalStudents: 0,
+        totalFaculty: 0,
+        totalCourses: 0,
+        passRate: 0,
+        atRiskCount: 0,
+        avgAttendance: 0,
+        totalDepartments: 0,
+        systemStatus: 'unknown'
+      };
+    }
+  }, [dashboardData]);
 
   const metrics = calculateMetrics();
 
-  // Static fallback data
-  const getStaticFallbackData = () => ({
-    overview: {
-      total_students: 12847,
-      total_faculty: 324,
-      total_courses: 486,
-      total_departments: 12,
-      active_semester: 'Spring 2024',
-      system_status: 'operational'
-    },
-    analytics: {
-      grade_distribution: { A: 2450, B: 3120, C: 1890, D: 870, F: 450 },
-      pass_rate: 94.2,
-      attendance_breakdown: { present: 85600, absent: 12400, late: 3200, excused: 1800 },
-      average_attendance: 87.5
+  // Enhanced static fallback data with environment awareness
+  const getStaticFallbackData = useCallback(() => {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('Using fallback data in production - check API connectivity');
     }
-  });
+    
+    return {
+      overview: {
+        total_students: 12847,
+        total_faculty: 324,
+        total_courses: 486,
+        total_departments: 12,
+        active_semester: 'Spring 2024',
+        system_status: 'operational'
+      },
+      analytics: {
+        grade_distribution: { A: 2450, B: 3120, C: 1890, D: 870, F: 450 },
+        pass_rate: 94.2,
+        attendance_breakdown: { present: 85600, absent: 12400, late: 3200, excused: 1800 },
+        average_attendance: 87.5,
+        total_grades_recorded: 8780
+      }
+    };
+  }, []);
 
-  const getStaticNotifications = () => [
+  const getStaticNotifications = useCallback(() => [
     {
       id: 1,
       type: 'info',
@@ -241,9 +454,9 @@ const EduDashboard = () => {
       author: 'Library Services',
       status: 'active'
     }
-  ];
+  ], []);
 
-  const getStaticAtRiskStudents = () => [
+  const getStaticAtRiskStudents = useCallback(() => [
     {
       id: 1,
       student_id: 'STU001',
@@ -262,9 +475,9 @@ const EduDashboard = () => {
       risk_level: 'medium',
       financial_status: 'paid'
     }
-  ];
+  ], []);
 
-  const getStaticFacultyWorkload = () => [
+  const getStaticFacultyWorkload = useCallback(() => [
     {
       faculty_id: 1,
       name: 'Dr. Emily Thompson',
@@ -283,9 +496,9 @@ const EduDashboard = () => {
       workload_hours: 35,
       utilization_percentage: 88
     }
-  ];
+  ], []);
 
-  const getStaticCourseEnrollment = () => [
+  const getStaticCourseEnrollment = useCallback(() => [
     {
       course_code: 'CS101',
       course_title: 'Introduction to Programming',
@@ -302,27 +515,41 @@ const EduDashboard = () => {
       total_capacity: 120,
       utilization_rate: 74.2
     }
-  ];
+  ], []);
 
-  const removeNotification = (id) => {
-    setNotifications(notifications.filter(n => n.id !== id));
-  };
-
-  const getIcon = (type) => {
-    switch(type) {
-      case 'info': return <Info className="icon-small" />;
-      case 'success': return <CheckCircle className="icon-small" />;
-      case 'warning': return <AlertTriangle className="icon-small" />;
-      default: return <Info className="icon-small" />;
+  // Notification management
+  const removeNotification = useCallback((id) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+    
+    // Track notification dismissal
+    if (window.analyticsService) {
+      window.analyticsService.track('notification_dismissed', {
+        notificationId: id,
+        timestamp: new Date().toISOString()
+      });
     }
-  };
+  }, []);
 
-  const activeNotifications = notifications.filter(n => n.status === 'active');
+  const getIcon = useCallback((type) => {
+    const iconMap = {
+      'info': <Info className="icon-small" />,
+      'success': <CheckCircle className="icon-small" />,
+      'warning': <AlertTriangle className="icon-small" />,
+      'error': <AlertTriangle className="icon-small" />
+    };
+    return iconMap[type] || <Info className="icon-small" />;
+  }, []);
 
-  if (loading) {
+  const activeNotifications = useMemo(() => 
+    notifications.filter(n => n.status === 'active'), 
+    [notifications]
+  );
+
+  // Loading state with accessibility
+  if (loading && !dashboardData) {
     return (
       <div className="dashboard-container">
-        <div className="sidebar">
+        <div className="sidebar" aria-hidden="true">
           <div className="sidebar-header">
             <div className="logo">
               <div className="logo-icon">
@@ -333,8 +560,8 @@ const EduDashboard = () => {
           </div>
         </div>
         <div className="main-content">
-          <div className="loading-container">
-            <div className="loading-spinner"></div>
+          <div className="loading-container" role="status" aria-live="polite">
+            <div className="loading-spinner" aria-hidden="true"></div>
             <p>Loading dashboard data...</p>
           </div>
         </div>
@@ -342,573 +569,520 @@ const EduDashboard = () => {
     );
   }
 
-  const { overview, analytics } = dashboardData;
+  const { overview, analytics } = dashboardData || getStaticFallbackData();
 
   return (
-    <div className="dashboard-container">
-      {/* Sidebar */}
-      <div className="sidebar">
-        <div className="sidebar-header">
-          <div className="logo">
-            <div className="logo-icon">
-              <GraduationCap className="icon-medium" />
+    <DashboardErrorBoundary>
+      <div className="dashboard-container">
+        {/* Sidebar Navigation */}
+        <nav className="sidebar" aria-label="Main navigation">
+          <div className="sidebar-header">
+            <div className="logo">
+              <div className="logo-icon">
+                <GraduationCap className="icon-medium" aria-hidden="true" />
+              </div>
+              <span className="logo-text">EduAdmin</span>
             </div>
-            <span className="logo-text">EduAdmin</span>
           </div>
-        </div>
-        
-        <nav className="sidebar-nav">
-          <div className="nav-section-title">Navigation</div>
-          <div className="nav-links">
-            <a href="/dashboard" className="nav-link active">
-              <BarChart3 className="nav-icon" />
-              Overview
-            </a>
-            <a href="/student" className="nav-link">
-              <Users className="nav-icon" />
-              Students
-            </a>
-            <a href="/faculty" className="nav-link">
-              <GraduationCap className="nav-icon" />
-              Faculty
-            </a>
-            <a href="/course" className="nav-link">
-              <BookOpen className="nav-icon" />
-              Courses
-            </a>
-            <a href="/analytics" className="nav-link">
-              <BarChart3 className="nav-icon" />
-              Analytics
-            </a>
-            <a href="/reports" className="nav-link">
-              <FileText className="nav-icon" />
-              Reports
-            </a>
-            <a href="/settings" className="nav-link">
-              <Settings className="nav-icon" />
-              Settings
-            </a>
+          
+          <div className="sidebar-nav">
+            <div className="nav-section-title">Navigation</div>
+            <div className="nav-links">
+              <a href="/dashboard" className="nav-link active" aria-current="page">
+                <BarChart3 className="nav-icon" aria-hidden="true" />
+                Overview
+              </a>
+              <a href="/student" className="nav-link">
+                <Users className="nav-icon" aria-hidden="true" />
+                Students
+              </a>
+              <a href="/faculty" className="nav-link">
+                <GraduationCap className="nav-icon" aria-hidden="true" />
+                Faculty
+              </a>
+              <a href="/course" className="nav-link">
+                <BookOpen className="nav-icon" aria-hidden="true" />
+                Courses
+              </a>
+              <a href="/analytics" className="nav-link">
+                <BarChart3 className="nav-icon" aria-hidden="true" />
+                Analytics
+              </a>
+              <a href="/reports" className="nav-link">
+                <FileText className="nav-icon" aria-hidden="true" />
+                Reports
+              </a>
+              <a href="/settings" className="nav-link">
+                <Settings className="nav-icon" aria-hidden="true" />
+                Settings
+              </a>
+            </div>
           </div>
         </nav>
-      </div>
 
-      {/* Main Content */}
-      <div className="main-content">
-        {/* New Header Section */}
-        <div className="dashboard-header">
-          <div className="header-content">
-            <h1 className="dashboard-title">Educational Dashboard</h1>
-            <p className="dashboard-subtitle">
-              Welcome back! Here's what's happening today.
-            </p>
-          </div>
-          <div className="header-actions">
-            <button className="refresh-btn" onClick={handleRefresh} disabled={loading}>
-              <RefreshCw size={16} className={loading ? 'spinning' : ''} />
-              {loading ? 'Refreshing...' : 'Refresh'}
-            </button>
-            <button className="export-btn">
-              <Download size={16} />
-              Export Report
-            </button>
-            <button className="notification-button">
-              <Bell className="icon-small" />
-              {activeNotifications.length > 0 && (
-                <span className="notification-badge">{activeNotifications.length}</span>
-              )}
-            </button>
-            <div className="profile-avatar">
-              <User className="icon-small" />
+        {/* Main Content Area */}
+        <main className="main-content" aria-label="Educational dashboard">
+          {/* Dashboard Header */}
+          <header className="dashboard-header" role="banner">
+            <div className="header-content">
+              <h1 className="dashboard-title">Educational Dashboard</h1>
+              <p className="dashboard-subtitle">
+                Welcome back! Here's what's happening today.
+                {lastUpdated && (
+                  <span className="last-updated">
+                    Last updated: {lastUpdated.toLocaleTimeString()}
+                  </span>
+                )}
+              </p>
             </div>
-          </div>
-        </div>
-
-        {error && (
-          <div className="error-banner">
-            <AlertTriangle size={16} />
-            <span>{error}</span>
-            <button onClick={fetchDashboardData} className="retry-btn">
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* New System Alerts Section */}
-        {systemAlerts.length > 0 && (
-          <div className="alerts-section">
-            <div className="section-header">
-              <h3>
-                <AlertTriangle size={20} />
-                System Alerts
-              </h3>
-              <span className="alert-count">{systemAlerts.length} active</span>
+            <div className="header-actions">
+              <button 
+                className="refresh-btn" 
+                onClick={handleRefresh} 
+                disabled={loading}
+                aria-label={loading ? "Refreshing data..." : "Refresh dashboard data"}
+              >
+                <RefreshCw size={16} className={loading ? 'spinning' : ''} aria-hidden="true" />
+                {loading ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button className="export-btn" aria-label="Export dashboard report">
+                <Download size={16} aria-hidden="true" />
+                Export Report
+              </button>
+              <button className="notification-button" aria-label="View notifications">
+                <Bell className="icon-small" aria-hidden="true" />
+                {activeNotifications.length > 0 && (
+                  <span className="notification-badge" aria-label={`${activeNotifications.length} unread notifications`}>
+                    {activeNotifications.length}
+                  </span>
+                )}
+              </button>
+              <div className="profile-avatar" aria-label="User profile">
+                <User className="icon-small" aria-hidden="true" />
+              </div>
             </div>
-            <div className="alerts-grid">
-              {systemAlerts.map(alert => (
-                <div key={alert.id} className={`alert-card ${alert.priority}`}>
-                  <div className="alert-header">
-                    <span className="alert-title">{alert.title}</span>
-                    <span className={`alert-priority ${alert.priority}`}>
-                      {alert.priority}
-                    </span>
+          </header>
+
+          {/* Error Display */}
+          {error && (
+            <div 
+              className="error-banner" 
+              role="alert" 
+              aria-live="assertive"
+              aria-atomic="true"
+            >
+              <AlertTriangle size={16} aria-hidden="true" />
+              <span>{error}</span>
+              <button 
+                onClick={fetchDashboardData} 
+                className="retry-btn"
+                aria-label="Retry loading dashboard data"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* System Alerts Section */}
+          {systemAlerts.length > 0 && (
+            <section className="alerts-section" aria-label="System alerts">
+              <div className="section-header">
+                <h2>
+                  <AlertTriangle size={20} aria-hidden="true" />
+                  System Alerts
+                </h2>
+                <span className="alert-count">{systemAlerts.length} active</span>
+              </div>
+              <div className="alerts-grid">
+                {systemAlerts.map(alert => (
+                  <div key={alert.id} className={`alert-card ${alert.priority}`} role="alert">
+                    <div className="alert-header">
+                      <span className="alert-title">{alert.title}</span>
+                      <span className={`alert-priority ${alert.priority}`}>
+                        {alert.priority}
+                      </span>
+                    </div>
+                    <p className="alert-message">{alert.message}</p>
+                    <div className="alert-footer">
+                      <span className="alert-time">
+                        <Clock size={12} aria-hidden="true" />
+                        {new Date(alert.created_at).toLocaleDateString()}
+                      </span>
+                      <button className="alert-action" aria-label={`View details for ${alert.title}`}>
+                        View Details
+                      </button>
+                    </div>
                   </div>
-                  <p className="alert-message">{alert.message}</p>
-                  <div className="alert-footer">
-                    <span className="alert-time">
-                      <Clock size={12} />
-                      {new Date(alert.created_at).toLocaleDateString()}
-                    </span>
-                    <button className="alert-action">
-                      View Details
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Key Metrics Section */}
+          <section className="metrics-grid" aria-label="Key performance metrics">
+            <div className="metric-card primary" role="region" aria-label="Total students metric">
+              <div className="metric-icon">
+                <Users size={24} aria-hidden="true" />
+              </div>
+              <div className="metric-content">
+                <div className="metric-value">{metrics.totalStudents.toLocaleString()}</div>
+                <div className="metric-label">Total Students</div>
+                <div className="metric-change positive">
+                  <ArrowUp size={14} aria-hidden="true" />
+                  +5.2% from last month
+                </div>
+              </div>
+            </div>
+
+            <div className="metric-card success" role="region" aria-label="Faculty members metric">
+              <div className="metric-icon">
+                <GraduationCap size={24} aria-hidden="true" />
+              </div>
+              <div className="metric-content">
+                <div className="metric-value">{metrics.totalFaculty}</div>
+                <div className="metric-label">Faculty Members</div>
+                <div className="metric-change positive">
+                  <ArrowUp size={14} aria-hidden="true" />
+                  +2.1% from last month
+                </div>
+              </div>
+            </div>
+
+            <div className="metric-card warning" role="region" aria-label="Active courses metric">
+              <div className="metric-icon">
+                <BookOpen size={24} aria-hidden="true" />
+              </div>
+              <div className="metric-content">
+                <div className="metric-value">{metrics.totalCourses}</div>
+                <div className="metric-label">Active Courses</div>
+                <div className="metric-change neutral">
+                  <span>No change</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="metric-card info" role="region" aria-label="Pass rate metric">
+              <div className="metric-icon">
+                <TrendingUp size={24} aria-hidden="true" />
+              </div>
+              <div className="metric-content">
+                <div className="metric-value">{metrics.passRate}%</div>
+                <div className="metric-label">Pass Rate</div>
+                <div className="metric-change positive">
+                  <ArrowUp size={14} aria-hidden="true" />
+                  +1.8% from last semester
+                </div>
+              </div>
+            </div>
+
+            <div className="metric-card danger" role="region" aria-label="At-risk students metric">
+              <div className="metric-icon">
+                <AlertTriangle size={24} aria-hidden="true" />
+              </div>
+              <div className="metric-content">
+                <div className="metric-value">{metrics.atRiskCount}</div>
+                <div className="metric-label">At-Risk Students</div>
+                <div className="metric-change negative">
+                  <ArrowDown size={14} aria-hidden="true" />
+                  -3.2% from last week
+                </div>
+              </div>
+            </div>
+
+            <div className="metric-card secondary" role="region" aria-label="Average attendance metric">
+              <div className="metric-icon">
+                <BarChart3 size={24} aria-hidden="true" />
+              </div>
+              <div className="metric-content">
+                <div className="metric-value">{metrics.avgAttendance}%</div>
+                <div className="metric-label">Avg Attendance</div>
+                <div className="metric-change positive">
+                  <ArrowUp size={14} aria-hidden="true" />
+                  +2.4% from last month
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Charts and Detailed Metrics Section */}
+          <section className="charts-section" aria-label="Charts and detailed analytics">
+            <div className="chart-row">
+              {/* Performance Chart */}
+              <div className="chart-card" role="region" aria-label="Academic performance chart">
+                <div className="chart-header">
+                  <h3>Academic Performance</h3>
+                  <div className="chart-actions">
+                    <button className="chart-action-btn" aria-label="View performance details">
+                      <Eye size={14} aria-hidden="true" />
+                    </button>
+                    <button className="chart-action-btn" aria-label="Download performance data">
+                      <Download size={14} aria-hidden="true" />
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* New Key Metrics Section */}
-        <div className="metrics-grid">
-          <div className="metric-card primary">
-            <div className="metric-icon">
-              <Users size={24} />
-            </div>
-            <div className="metric-content">
-              <div className="metric-value">{metrics.totalStudents.toLocaleString()}</div>
-              <div className="metric-label">Total Students</div>
-              <div className="metric-change positive">
-                <ArrowUp size={14} />
-                +5.2% from last month
-              </div>
-            </div>
-          </div>
-
-          <div className="metric-card success">
-            <div className="metric-icon">
-              <GraduationCap size={24} />
-            </div>
-            <div className="metric-content">
-              <div className="metric-value">{metrics.totalFaculty}</div>
-              <div className="metric-label">Faculty Members</div>
-              <div className="metric-change positive">
-                <ArrowUp size={14} />
-                +2.1% from last month
-              </div>
-            </div>
-          </div>
-
-          <div className="metric-card warning">
-            <div className="metric-icon">
-              <BookOpen size={24} />
-            </div>
-            <div className="metric-content">
-              <div className="metric-value">{metrics.totalCourses}</div>
-              <div className="metric-label">Active Courses</div>
-              <div className="metric-change neutral">
-                <span>No change</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="metric-card info">
-            <div className="metric-icon">
-              <TrendingUp size={24} />
-            </div>
-            <div className="metric-content">
-              <div className="metric-value">{metrics.passRate}%</div>
-              <div className="metric-label">Pass Rate</div>
-              <div className="metric-change positive">
-                <ArrowUp size={14} />
-                +1.8% from last semester
-              </div>
-            </div>
-          </div>
-
-          <div className="metric-card danger">
-            <div className="metric-icon">
-              <AlertTriangle size={24} />
-            </div>
-            <div className="metric-content">
-              <div className="metric-value">{metrics.atRiskCount}</div>
-              <div className="metric-label">At-Risk Students</div>
-              <div className="metric-change negative">
-                <ArrowDown size={14} />
-                -3.2% from last week
-              </div>
-            </div>
-          </div>
-
-          <div className="metric-card secondary">
-            <div className="metric-icon">
-              <BarChart3 size={24} />
-            </div>
-            <div className="metric-content">
-              <div className="metric-value">{metrics.avgAttendance}%</div>
-              <div className="metric-label">Avg Attendance</div>
-              <div className="metric-change positive">
-                <ArrowUp size={14} />
-                +2.4% from last month
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* New Charts and Detailed Metrics Section */}
-        <div className="charts-section">
-          <div className="chart-row">
-            {/* Performance Chart */}
-            <div className="chart-card">
-              <div className="chart-header">
-                <h3>Academic Performance</h3>
-                <div className="chart-actions">
-                  <button className="chart-action-btn">
-                    <Eye size={14} />
-                  </button>
-                  <button className="chart-action-btn">
-                    <Download size={14} />
-                  </button>
-                </div>
-              </div>
-              <div className="chart-content">
-                {dashboardData?.performance?.grade_distribution ? (
-                  <div className="grade-distribution">
-                    {Object.entries(dashboardData.performance.grade_distribution).map(([grade, count]) => {
-                      const percentage = (count / dashboardData.performance.total_grades_recorded) * 100;
-                      return (
-                        <div key={grade} className="grade-bar">
-                          <div className="grade-label">{grade}</div>
-                          <div className="grade-bar-container">
-                            <div 
-                              className="grade-bar-fill" 
-                              style={{ width: `${percentage}%` }}
-                            ></div>
+                <div className="chart-content">
+                  {dashboardData?.performance?.grade_distribution ? (
+                    <div className="grade-distribution">
+                      {Object.entries(dashboardData.performance.grade_distribution).map(([grade, count]) => {
+                        const percentage = (count / dashboardData.performance.total_grades_recorded) * 100;
+                        return (
+                          <div key={grade} className="grade-bar">
+                            <div className="grade-label">{grade}</div>
+                            <div className="grade-bar-container">
+                              <div 
+                                className="grade-bar-fill" 
+                                style={{ width: `${percentage}%` }}
+                                aria-label={`Grade ${grade}: ${percentage.toFixed(1)}%`}
+                              ></div>
+                            </div>
+                            <div className="grade-count">{count}</div>
                           </div>
-                          <div className="grade-count">{count}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="no-data">
-                    <BarChart3 size={32} />
-                    <p>No performance data available</p>
-                  </div>
-                )}
-              </div>
-              <div className="chart-footer">
-                <div className="chart-stats">
-                  <div className="stat-item">
-                    <span className="stat-label">Pass Rate:</span>
-                    <span className="stat-value">{metrics.passRate}%</span>
-                  </div>
-                  <div className="stat-item">
-                    <span className="stat-label">Total Grades:</span>
-                    <span className="stat-value">
-                      {dashboardData?.performance?.total_grades_recorded?.toLocaleString() || 0}
-                    </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="no-data">
+                      <BarChart3 size={32} aria-hidden="true" />
+                      <p>No performance data available</p>
+                    </div>
+                  )}
+                </div>
+                <div className="chart-footer">
+                  <div className="chart-stats">
+                    <div className="stat-item">
+                      <span className="stat-label">Pass Rate:</span>
+                      <span className="stat-value">{metrics.passRate}%</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-label">Total Grades:</span>
+                      <span className="stat-value">
+                        {dashboardData?.performance?.total_grades_recorded?.toLocaleString() || 0}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* At-Risk Students */}
-            <div className="chart-card">
-              <div className="chart-header">
-                <h3>At-Risk Students</h3>
-                <span className="risk-count">{metrics.atRiskCount} students</span>
-              </div>
-              <div className="chart-content">
-                {dashboardData?.atRisk && dashboardData.atRisk.length > 0 ? (
-                  <div className="risk-list">
-                    {dashboardData.atRisk.slice(0, 5).map(student => (
-                      <div key={student.id} className="risk-item">
-                        <div className="student-info">
-                          <div className="student-name">{student.name}</div>
-                          <div className="student-details">
-                            {student.department} • GPA: {student.gpa}
+              {/* At-Risk Students */}
+              <div className="chart-card" role="region" aria-label="At-risk students list">
+                <div className="chart-header">
+                  <h3>At-Risk Students</h3>
+                  <span className="risk-count">{metrics.atRiskCount} students</span>
+                </div>
+                <div className="chart-content">
+                  {dashboardData?.atRisk && dashboardData.atRisk.length > 0 ? (
+                    <div className="risk-list">
+                      {dashboardData.atRisk.slice(0, 5).map(student => (
+                        <div key={student.id} className="risk-item">
+                          <div className="student-info">
+                            <div className="student-name">{student.name}</div>
+                            <div className="student-details">
+                              {student.department} • GPA: {student.gpa}
+                            </div>
+                          </div>
+                          <div className={`risk-level ${student.risk_level}`}>
+                            {student.risk_level}
                           </div>
                         </div>
-                        <div className={`risk-level ${student.risk_level}`}>
-                          {student.risk_level}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="no-data">
+                      <CheckCircle size={32} aria-hidden="true" />
+                      <p>No at-risk students detected</p>
+                    </div>
+                  )}
+                </div>
+                <div className="chart-footer">
+                  <button className="view-all-btn" aria-label="View all at-risk students">
+                    View All At-Risk Students
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="chart-row">
+              {/* Recent Activity */}
+              <div className="chart-card" role="region" aria-label="Recent activity feed">
+                <div className="chart-header">
+                  <h3>Recent Activity</h3>
+                  <span className="activity-count">{recentActivity.length} activities</span>
+                </div>
+                <div className="chart-content">
+                  <div className="activity-list">
+                    {recentActivity.map(activity => (
+                      <div key={activity.id} className="activity-item">
+                        <div className="activity-icon" aria-hidden="true">{activity.icon}</div>
+                        <div className="activity-content">
+                          <div className="activity-message">{activity.message}</div>
+                          <div className="activity-time">{activity.time}</div>
                         </div>
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <div className="no-data">
-                    <CheckCircle size={32} />
-                    <p>No at-risk students detected</p>
-                  </div>
-                )}
+                </div>
               </div>
-              <div className="chart-footer">
-                <button className="view-all-btn">
-                  View All At-Risk Students
-                </button>
-              </div>
-            </div>
-          </div>
 
-          <div className="chart-row">
-            {/* Recent Activity */}
-            <div className="chart-card">
-              <div className="chart-header">
-                <h3>Recent Activity</h3>
-                <span className="activity-count">{recentActivity.length} activities</span>
-              </div>
-              <div className="chart-content">
-                <div className="activity-list">
-                  {recentActivity.map(activity => (
-                    <div key={activity.id} className="activity-item">
-                      <div className="activity-icon">{activity.icon}</div>
-                      <div className="activity-content">
-                        <div className="activity-message">{activity.message}</div>
-                        <div className="activity-time">{activity.time}</div>
-                      </div>
+              {/* Quick Stats */}
+              <div className="chart-card" role="region" aria-label="Quick statistics">
+                <div className="chart-header">
+                  <h3>Quick Stats</h3>
+                  <Calendar size={16} aria-hidden="true" />
+                </div>
+                <div className="chart-content">
+                  <div className="stats-grid-mini">
+                    <div className="stat-mini">
+                      <div className="stat-mini-value">87%</div>
+                      <div className="stat-mini-label">Course Completion</div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Stats */}
-            <div className="chart-card">
-              <div className="chart-header">
-                <h3>Quick Stats</h3>
-                <Calendar size={16} />
-              </div>
-              <div className="chart-content">
-                <div className="stats-grid-mini">
-                  <div className="stat-mini">
-                    <div className="stat-mini-value">87%</div>
-                    <div className="stat-mini-label">Course Completion</div>
-                  </div>
-                  <div className="stat-mini">
-                    <div className="stat-mini-value">94%</div>
-                    <div className="stat-mini-label">Student Satisfaction</div>
-                  </div>
-                  <div className="stat-mini">
-                    <div className="stat-mini-value">78%</div>
-                    <div className="stat-mini-label">Resource Usage</div>
-                  </div>
-                  <div className="stat-mini">
-                    <div className="stat-mini-value">$2.4M</div>
-                    <div className="stat-mini-label">Semester Revenue</div>
+                    <div className="stat-mini">
+                      <div className="stat-mini-value">94%</div>
+                      <div className="stat-mini-label">Student Satisfaction</div>
+                    </div>
+                    <div className="stat-mini">
+                      <div className="stat-mini-value">78%</div>
+                      <div className="stat-mini-label">Resource Usage</div>
+                    </div>
+                    <div className="stat-mini">
+                      <div className="stat-mini-value">$2.4M</div>
+                      <div className="stat-mini-label">Semester Revenue</div>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="chart-footer">
-                <div className="system-status">
-                  <div className="status-item online">
-                    <CheckCircle size={14} />
-                    <span>All Systems Operational</span>
-                  </div>
-                  <div className="status-item">
-                    <Clock size={14} />
-                    <span>Last updated: {new Date().toLocaleTimeString()}</span>
+                <div className="chart-footer">
+                  <div className="system-status">
+                    <div className="status-item online">
+                      <CheckCircle size={14} aria-hidden="true" />
+                      <span>All Systems Operational</span>
+                    </div>
+                    <div className="status-item">
+                      <Clock size={14} aria-hidden="true" />
+                      <span>Last updated: {new Date().toLocaleTimeString()}</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+          </section>
 
-        {/* New Department Performance Section */}
-        <div className="department-section">
-          <div className="section-header">
-            <h3>Department Performance</h3>
-            <button className="view-report-btn">
-              View Detailed Report
-            </button>
-          </div>
-          <div className="department-grid">
-            <div className="department-card">
-              <div className="department-header">
-                <h4>Computer Science</h4>
-                <span className="performance-score high">92%</span>
-              </div>
-              <div className="department-metrics">
-                <div className="metric">
-                  <span className="metric-label">Enrollment:</span>
-                  <span className="metric-value">1,247</span>
-                </div>
-                <div className="metric">
-                  <span className="metric-label">Pass Rate:</span>
-                  <span className="metric-value">94%</span>
-                </div>
-                <div className="metric">
-                  <span className="metric-label">Satisfaction:</span>
-                  <span className="metric-value">4.6/5</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="department-card">
-              <div className="department-header">
-                <h4>Engineering</h4>
-                <span className="performance-score medium">85%</span>
-              </div>
-              <div className="department-metrics">
-                <div className="metric">
-                  <span className="metric-label">Enrollment:</span>
-                  <span className="metric-value">2,134</span>
-                </div>
-                <div className="metric">
-                  <span className="metric-label">Pass Rate:</span>
-                  <span className="metric-value">87%</span>
-                </div>
-                <div className="metric">
-                  <span className="metric-label">Satisfaction:</span>
-                  <span className="metric-value">4.3/5</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="department-card">
-              <div className="department-header">
-                <h4>Mathematics</h4>
-                <span className="performance-score low">78%</span>
-              </div>
-              <div className="department-metrics">
-                <div className="metric">
-                  <span className="metric-label">Enrollment:</span>
-                  <span className="metric-value">892</span>
-                </div>
-                <div className="metric">
-                  <span className="metric-label">Pass Rate:</span>
-                  <span className="metric-value">79%</span>
-                </div>
-                <div className="metric">
-                  <span className="metric-label">Satisfaction:</span>
-                  <span className="metric-value">4.1/5</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* New Upcoming Events Section */}
-        <div className="events-section">
-          <div className="section-header">
-            <h3>Upcoming Events</h3>
-            <button className="view-calendar-btn">
-              View Full Calendar
-            </button>
-          </div>
-          <div className="events-list">
-            <div className="event-item">
-              <div className="event-date">
-                <div className="event-day">15</div>
-                <div className="event-month">MAR</div>
-              </div>
-              <div className="event-details">
-                <div className="event-title">Faculty Development Workshop</div>
-                <div className="event-time">10:00 AM - 2:00 PM</div>
-              </div>
-              <div className="event-status upcoming">Upcoming</div>
-            </div>
-            
-            <div className="event-item">
-              <div className="event-date">
-                <div className="event-day">20</div>
-                <div className="event-month">MAR</div>
-              </div>
-              <div className="event-details">
-                <div className="event-title">Semester End Review Meeting</div>
-                <div className="event-time">9:00 AM - 11:00 AM</div>
-              </div>
-              <div className="event-status upcoming">Upcoming</div>
-            </div>
-            
-            <div className="event-item">
-              <div className="event-date">
-                <div className="event-day">25</div>
-                <div className="event-month">MAR</div>
-              </div>
-              <div className="event-details">
-                <div className="event-title">Student Research Symposium</div>
-                <div className="event-time">All Day</div>
-              </div>
-              <div className="event-status upcoming">Upcoming</div>
-            </div>
-          </div>
-        </div>
-
-        <main className="main-content-area">
-          {/* System Maintenance Alert */}
-          <div className="system-alert maintenance-alert">
-            <div className="alert-content">
-              <AlertTriangle className="alert-icon" />
-              <div className="alert-body">
-                <h3 className="alert-title">System Maintenance Scheduled</h3>
-                <p className="alert-message">
-                  The student portal will be unavailable tomorrow from 2:00 AM to 4:00 AM for scheduled maintenance.
-                </p>
-                <p className="alert-meta">IT Administration • 2024-01-16 14:30</p>
-              </div>
-              <button className="alert-close">
-                <X className="icon-small" />
+          {/* Department Performance Section */}
+          <div className="department-section">
+            <div className="section-header">
+              <h3>Department Performance</h3>
+              <button className="view-report-btn">
+                View Detailed Report
               </button>
             </div>
-          </div>
-
-          {/* System Announcements */}
-          <div className="announcements-container">
-            <div className="announcements-header">
-              <div className="announcements-title-section">
-                <Calendar className="icon-medium" />
-                <h2 className="announcements-title">System Announcements</h2>
-              </div>
-              <div className="announcements-actions">
-                <span className="active-count">{activeNotifications.length} active</span>
-                <button className="create-announcement-btn">
-                  Create Announcement
-                </button>
-              </div>
-            </div>
-
-            <div className="announcements-list">
-              {notifications.map((notification) => (
-                <div key={notification.id} className="announcement-item">
-                  <div className="announcement-content">
-                    <div className="announcement-icon-wrapper">
-                      <div className={`announcement-icon ${notification.type}`}>
-                        {getIcon(notification.type)}
-                      </div>
-                    </div>
-                    <div className="announcement-body">
-                      <h3 className="announcement-title">{notification.title}</h3>
-                      <p className="announcement-message">{notification.message}</p>
-                      <div className="announcement-meta">
-                        <span className="meta-item">
-                          <Users className="meta-icon" />
-                          {notification.audience}
-                        </span>
-                        <span className="meta-item">
-                          <Calendar className="meta-icon" />
-                          {new Date(notification.time).toLocaleString()}
-                        </span>
-                        {notification.expires && (
-                          <span className="meta-item">Expires: {new Date(notification.expires).toLocaleDateString()}</span>
-                        )}
-                      </div>
-                      <p className="announcement-author">By {notification.author}</p>
-                    </div>
+            <div className="department-grid">
+              <div className="department-card">
+                <div className="department-header">
+                  <h4>Computer Science</h4>
+                  <span className="performance-score high">92%</span>
+                </div>
+                <div className="department-metrics">
+                  <div className="metric">
+                    <span className="metric-label">Enrollment:</span>
+                    <span className="metric-value">1,247</span>
                   </div>
-                  <div className="announcement-actions">
-                    <span className={`status-badge ${notification.type}`}>
-                      {notification.type}
-                    </span>
-                    <button 
-                      onClick={() => removeNotification(notification.id)}
-                      className="remove-btn"
-                    >
-                      <X className="icon-small" />
-                    </button>
+                  <div className="metric">
+                    <span className="metric-label">Pass Rate:</span>
+                    <span className="metric-value">94%</span>
+                  </div>
+                  <div className="metric">
+                    <span className="metric-label">Satisfaction:</span>
+                    <span className="metric-value">4.6/5</span>
                   </div>
                 </div>
-              ))}
+              </div>
+
+              <div className="department-card">
+                <div className="department-header">
+                  <h4>Engineering</h4>
+                  <span className="performance-score medium">85%</span>
+                </div>
+                <div className="department-metrics">
+                  <div className="metric">
+                    <span className="metric-label">Enrollment:</span>
+                    <span className="metric-value">2,134</span>
+                  </div>
+                  <div className="metric">
+                    <span className="metric-label">Pass Rate:</span>
+                    <span className="metric-value">87%</span>
+                  </div>
+                  <div className="metric">
+                    <span className="metric-label">Satisfaction:</span>
+                    <span className="metric-value">4.3/5</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="department-card">
+                <div className="department-header">
+                  <h4>Mathematics</h4>
+                  <span className="performance-score low">78%</span>
+                </div>
+                <div className="department-metrics">
+                  <div className="metric">
+                    <span className="metric-label">Enrollment:</span>
+                    <span className="metric-value">892</span>
+                  </div>
+                  <div className="metric">
+                    <span className="metric-label">Pass Rate:</span>
+                    <span className="metric-value">79%</span>
+                  </div>
+                  <div className="metric">
+                    <span className="metric-label">Satisfaction:</span>
+                    <span className="metric-value">4.1/5</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Upcoming Events Section */}
+          <div className="events-section">
+            <div className="section-header">
+              <h3>Upcoming Events</h3>
+              <button className="view-calendar-btn">
+                View Full Calendar
+              </button>
+            </div>
+            <div className="events-list">
+              <div className="event-item">
+                <div className="event-date">
+                  <div className="event-day">15</div>
+                  <div className="event-month">MAR</div>
+                </div>
+                <div className="event-details">
+                  <div className="event-title">Faculty Development Workshop</div>
+                  <div className="event-time">10:00 AM - 2:00 PM</div>
+                </div>
+                <div className="event-status upcoming">Upcoming</div>
+              </div>
+              
+              <div className="event-item">
+                <div className="event-date">
+                  <div className="event-day">20</div>
+                  <div className="event-month">MAR</div>
+                </div>
+                <div className="event-details">
+                  <div className="event-title">Semester End Review Meeting</div>
+                  <div className="event-time">9:00 AM - 11:00 AM</div>
+                </div>
+                <div className="event-status upcoming">Upcoming</div>
+              </div>
+              
+              <div className="event-item">
+                <div className="event-date">
+                  <div className="event-day">25</div>
+                  <div className="event-month">MAR</div>
+                </div>
+                <div className="event-details">
+                  <div className="event-title">Student Research Symposium</div>
+                  <div className="event-time">All Day</div>
+                </div>
+                <div className="event-status upcoming">Upcoming</div>
+              </div>
             </div>
           </div>
 
@@ -1103,152 +1277,8 @@ const EduDashboard = () => {
             </div>
           </div>
 
-          {/* Department Analytics Section */}
-          <div className="department-analytics">
-            <div className="department-grid">
-              {/* Dropout Risk by Department */}
-              <div className="department-card">
-                <h3 className="department-card-title">Dropout Risk by Department</h3>
-                <div className="dropout-risk-list">
-                  <div className="risk-item">
-                    <div className="risk-info">
-                      <span className="department-name">Computer Science</span>
-                      <span className="student-count">1247 students</span>
-                    </div>
-                    <div className="risk-indicator">
-                      <span className="risk-percentage low">15%</span>
-                      <span className="risk-label low">Low Risk</span>
-                    </div>
-                  </div>
-                  
-                  <div className="risk-item">
-                    <div className="risk-info">
-                      <span className="department-name">Engineering</span>
-                      <span className="student-count">2134 students</span>
-                    </div>
-                    <div className="risk-indicator">
-                      <span className="risk-percentage medium">23%</span>
-                      <span className="risk-label medium">Medium Risk</span>
-                    </div>
-                  </div>
-                  
-                  <div className="risk-item">
-                    <div className="risk-info">
-                      <span className="department-name">Business</span>
-                      <span className="student-count">892 students</span>
-                    </div>
-                    <div className="risk-indicator">
-                      <span className="risk-percentage low">8%</span>
-                      <span className="risk-label low">Low Risk</span>
-                    </div>
-                  </div>
-                  
-                  <div className="risk-item">
-                    <div className="risk-info">
-                      <span className="department-name">Physics</span>
-                      <span className="student-count">674 students</span>
-                    </div>
-                    <div className="risk-indicator">
-                      <span className="risk-percentage high">35%</span>
-                      <span className="risk-label high">High Risk</span>
-                    </div>
-                  </div>
-                  
-                  <div className="risk-item">
-                    <div className="risk-info">
-                      <span className="department-name">Mathematics</span>
-                      <span className="student-count">456 students</span>
-                    </div>
-                    <div className="risk-indicator">
-                      <span className="risk-percentage low">18%</span>
-                      <span className="risk-label low">Low Risk</span>
-                    </div>
-                  </div>
-                  
-                  <div className="risk-item">
-                    <div className="risk-info">
-                      <span className="department-name">Literature</span>
-                      <span className="student-count">334 students</span>
-                    </div>
-                    <div className="risk-indicator">
-                      <span className="risk-percentage low">12%</span>
-                      <span className="risk-label low">Low Risk</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Pass Rates by Subject */}
-              <div className="department-card">
-                <h3 className="department-card-title">Pass Rates by Subject</h3>
-                <div className="pass-rates-list">
-                  <div className="pass-rate-item">
-                    <div className="subject-info">
-                      <span className="subject-name">Mathematics</span>
-                      <span className="pass-percentage">87%</span>
-                    </div>
-                    <div className="pass-rate-bar">
-                      <div className="pass-rate-fill" style={{width: '87%'}}></div>
-                    </div>
-                  </div>
-                  
-                  <div className="pass-rate-item">
-                    <div className="subject-info">
-                      <span className="subject-name">Physics</span>
-                      <span className="pass-percentage">79%</span>
-                    </div>
-                    <div className="pass-rate-bar">
-                      <div className="pass-rate-fill" style={{width: '79%'}}></div>
-                    </div>
-                  </div>
-                  
-                  <div className="pass-rate-item">
-                    <div className="subject-info">
-                      <span className="subject-name">Chemistry</span>
-                      <span className="pass-percentage">91%</span>
-                    </div>
-                    <div className="pass-rate-bar">
-                      <div className="pass-rate-fill" style={{width: '91%'}}></div>
-                    </div>
-                  </div>
-                  
-                  <div className="pass-rate-item">
-                    <div className="subject-info">
-                      <span className="subject-name">Computer Science</span>
-                      <span className="pass-percentage">94%</span>
-                    </div>
-                    <div className="pass-rate-bar">
-                      <div className="pass-rate-fill" style={{width: '94%'}}></div>
-                    </div>
-                  </div>
-                  
-                  <div className="pass-rate-item">
-                    <div className="subject-info">
-                      <span className="subject-name">English</span>
-                      <span className="pass-percentage">96%</span>
-                    </div>
-                    <div className="pass-rate-bar">
-                      <div className="pass-rate-fill" style={{width: '96%'}}></div>
-                    </div>
-                  </div>
-                  
-                  <div className="pass-rate-item">
-                    <div className="subject-info">
-                      <span className="subject-name">History</span>
-                      <span className="pass-percentage">89%</span>
-                    </div>
-                    <div className="pass-rate-bar">
-                      <div className="pass-rate-fill" style={{width: '89%'}}></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
+          {/* Advanced Analytics Section */}
           <div className="advanced-analytics">
-            <h2 className="section-title"></h2>
-            
             {/* Course Demand Forecast */}
             <div className="forecast-section">
               <div className="forecast-card">
@@ -1526,6 +1556,7 @@ const EduDashboard = () => {
             </div>
           </div>
 
+          {/* Gap Analysis & Predictive Insights */}
           <div className="gap-analysis-section">
             <div className="gap-analysis-header">
               <h2 className="section-title">Gap Analysis & Predictive Insights</h2>
@@ -2048,7 +2079,7 @@ const EduDashboard = () => {
           </div>
         </main>
       </div>
-    </div>
+    </DashboardErrorBoundary>
   );
 };
 
