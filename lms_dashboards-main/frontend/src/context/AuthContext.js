@@ -14,11 +14,15 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Enterprise token management
+  // Production API base URL from environment
+  const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'https://dashboard-backend-qmy9.onrender.com';
+
+  // Enhanced token management
   const getStoredToken = () => {
     try {
-      return localStorage.getItem('enterprise_access_token');
+      return localStorage.getItem('access_token') || localStorage.getItem('enterprise_access_token');
     } catch (error) {
       console.error('Token storage error:', error);
       return null;
@@ -27,6 +31,7 @@ export const AuthProvider = ({ children }) => {
 
   const setStoredToken = (token) => {
     try {
+      localStorage.setItem('access_token', token);
       localStorage.setItem('enterprise_access_token', token);
     } catch (error) {
       console.error('Token storage error:', error);
@@ -35,76 +40,78 @@ export const AuthProvider = ({ children }) => {
 
   const removeStoredTokens = () => {
     try {
+      localStorage.removeItem('access_token');
       localStorage.removeItem('enterprise_access_token');
+      localStorage.removeItem('refresh_token');
       localStorage.removeItem('enterprise_refresh_token');
+      localStorage.removeItem('user');
     } catch (error) {
       console.error('Token removal error:', error);
     }
   };
 
-  // Enterprise API call with error handling
-  const enterpriseApiCall = async (url, options = {}) => {
-    const token = getStoredToken();
-    const config = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` }),
-        ...options.headers,
-      },
-      ...options,
-    };
-
-    try {
-      const response = await fetch(`/api/v1${url}`, config);
-      
-      if (response.status === 401) {
-        // Token expired, try to refresh
-        await refreshToken();
-        return enterpriseApiCall(url, options);
-      }
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('API call failed:', error);
-      throw error;
-    }
-  };
-
-  // Enterprise login
+  // Production-ready login function
   const login = async (email, password) => {
     try {
       setError('');
       setLoading(true);
 
-      const data = await enterpriseApiCall('/auth/login', {
+      console.log('Attempting login to:', `${API_BASE_URL}/api/v1/auth/login`);
+
+      // Try v1 endpoint first, then fallback to legacy
+      let response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ email, password }),
       });
 
-      if (data.access_token) {
-        setStoredToken(data.access_token);
-        setUser(data.user);
+      // If v1 fails, try legacy endpoint
+      if (!response.ok) {
+        console.log('v1 login failed, trying legacy endpoint...');
+        response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, password }),
+        });
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Login failed. Please check your credentials.');
+      }
+
+      const data = await response.json();
+      console.log('Login response:', data);
+      
+      if (data.access_token || data.token) {
+        const token = data.access_token || data.token;
+        setStoredToken(token);
         
-        // Handle password change requirement
-        if (data.user.requires_password_change) {
-          setError('PASSWORD_CHANGE_REQUIRED');
-        }
+        // Handle different user response formats
+        const userData = data.user || {
+          id: data.id,
+          email: data.email,
+          first_name: data.first_name,
+          last_name: data.last_name,
+          role: data.role || 'admin',
+          roles: [data.role || 'admin']
+        };
         
-        return { success: true, user: data.user };
+        localStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+        setIsAuthenticated(true);
+        
+        return { success: true, user: userData };
       } else {
-        setError(data.error || 'Login failed');
-        return { success: false, error: data.error };
+        throw new Error('Invalid response from server');
       }
     } catch (error) {
-      const errorMessage = error.message.includes('Failed to fetch') 
-        ? 'Network error. Please check your connection.'
-        : error.message || 'Login failed. Please try again.';
-      
+      console.error('Login error:', error);
+      const errorMessage = error.message || 'Login failed. Please try again.';
       setError(errorMessage);
       return { success: false, error: errorMessage };
     } finally {
@@ -112,73 +119,79 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Enterprise logout
+  // Enhanced logout
   const logout = async () => {
     try {
-      await enterpriseApiCall('/auth/logout', { method: 'POST' });
+      const token = getStoredToken();
+      if (token) {
+        // Try to call logout endpoint (but don't block if it fails)
+        await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        }).catch(() => {
+          console.log('Logout API call failed, continuing with client cleanup');
+        });
+      }
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
       removeStoredTokens();
       setUser(null);
+      setIsAuthenticated(false);
       setError('');
     }
   };
 
-  // Token refresh
-  const refreshToken = async () => {
-    try {
-      const refreshToken = localStorage.getItem('enterprise_refresh_token');
-      if (!refreshToken) throw new Error('No refresh token');
-      
-      const response = await fetch('/api/v1/auth/refresh', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${refreshToken}`,
-        },
-      });
+  // Check authentication status
+  const checkAuth = async () => {
+    const token = getStoredToken();
+    const storedUser = localStorage.getItem('user');
+    
+    if (token && storedUser) {
+      try {
+        // Verify token is still valid by calling protected endpoint
+        const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
-      if (response.ok) {
-        const data = await response.json();
-        setStoredToken(data.access_token);
-        return data.access_token;
-      } else {
-        throw new Error('Token refresh failed');
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData);
+          setIsAuthenticated(true);
+        } else {
+          throw new Error('Token invalid');
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        removeStoredTokens();
+        setIsAuthenticated(false);
+        setUser(null);
       }
-    } catch (error) {
-      removeStoredTokens();
+    } else {
+      setIsAuthenticated(false);
       setUser(null);
-      throw error;
     }
+    setLoading(false);
   };
 
   // Check auth status on app start
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      const token = getStoredToken();
-      if (token) {
-        try {
-          const userData = await enterpriseApiCall('/users/me');
-          setUser(userData);
-        } catch (error) {
-          removeStoredTokens();
-          console.error('Auth check failed:', error);
-        }
-      }
-      setLoading(false);
-    };
-
-    checkAuthStatus();
+    checkAuth();
   }, []);
 
   const value = {
     user,
+    isAuthenticated,
     loading,
     error,
     login,
     logout,
+    checkAuth,
     setError,
-    enterpriseApiCall,
   };
 
   return (

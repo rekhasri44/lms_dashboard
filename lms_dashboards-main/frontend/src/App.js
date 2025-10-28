@@ -1,17 +1,29 @@
-import React, { lazy, Suspense, useEffect, useCallback } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import React, { lazy, Suspense, useEffect, useCallback, useState } from "react";
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginPage from "./components/LoginPage";
+import { 
+  BarChart3, 
+  Users, 
+  GraduationCap, 
+  BookOpen, 
+  FileText, 
+  Settings as SettingsIcon,
+  LogOut,
+  Menu,
+  X,
+  Bell
+} from 'lucide-react';
 import "./App.css";
 
 // Enterprise Configuration
 const ENTERPRISE_CONFIG = {
   ROUTES: {
-    LOGIN: '/',
+    LOGIN: '/login',
     DASHBOARD: '/dashboard',
-    STUDENT: '/student',
+    STUDENT: '/students',
     FACULTY: '/faculty',
-    COURSE: '/course',
+    COURSE: '/courses',
     ANALYTICS: '/analytics',
     REPORTS: '/reports',
     SETTINGS: '/settings',
@@ -29,7 +41,7 @@ const ENTERPRISE_CONFIG = {
   }
 };
 
-// Simple lazy loading - FIXED VERSION
+// Lazy loaded components
 const EduDashboard = lazy(() => import("./EduDashboard"));
 const StudentManagement = lazy(() => import("./StudentManagement"));
 const FacultyManagement = lazy(() => import("./FacultyManagement"));
@@ -122,6 +134,17 @@ const ProtectedRoute = ({
   return children;
 };
 
+// Public Route Component (redirect if already authenticated)
+const PublicRoute = ({ children }) => {
+  const { isAuthenticated, loading } = useAuth();
+  
+  if (loading) {
+    return <RouteLoading message="Checking authentication..." moduleName="Auth Check" />;
+  }
+  
+  return !isAuthenticated ? children : <Navigate to={ENTERPRISE_CONFIG.ROUTES.DASHBOARD} replace />;
+};
+
 // Performance Monitoring Hook
 const usePerformanceMonitoring = () => {
   useEffect(() => {
@@ -188,6 +211,213 @@ const useRouteTracking = () => {
       };
     }
   }, [location]);
+};
+
+// Navigation Sidebar Component
+const Sidebar = ({ isOpen, onClose }) => {
+  const { user, logout } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const navigationItems = [
+    { path: ENTERPRISE_CONFIG.ROUTES.DASHBOARD, icon: BarChart3, label: 'Overview', roles: ['admin', 'faculty', 'staff'] },
+    { path: ENTERPRISE_CONFIG.ROUTES.STUDENT, icon: Users, label: 'Students', roles: ['admin', 'faculty'] },
+    { path: ENTERPRISE_CONFIG.ROUTES.FACULTY, icon: GraduationCap, label: 'Faculty', roles: ['admin'] },
+    { path: ENTERPRISE_CONFIG.ROUTES.COURSE, icon: BookOpen, label: 'Courses', roles: ['admin', 'faculty'] },
+    { path: ENTERPRISE_CONFIG.ROUTES.ANALYTICS, icon: BarChart3, label: 'Analytics', roles: ['admin', 'faculty'] },
+    { path: ENTERPRISE_CONFIG.ROUTES.REPORTS, icon: FileText, label: 'Reports', roles: ['admin', 'faculty', 'staff'] },
+    { path: ENTERPRISE_CONFIG.ROUTES.SETTINGS, icon: SettingsIcon, label: 'Settings', roles: ['admin'] },
+  ];
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate(ENTERPRISE_CONFIG.ROUTES.LOGIN);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  const isActivePath = (path) => {
+    if (path === ENTERPRISE_CONFIG.ROUTES.DASHBOARD) {
+      return location.pathname === ENTERPRISE_CONFIG.ROUTES.DASHBOARD;
+    }
+    return location.pathname.startsWith(path);
+  };
+
+  // Filter navigation items based on user roles
+  const filteredNavigationItems = navigationItems.filter(item => {
+    if (!ENTERPRISE_CONFIG.FEATURE_FLAGS.ENABLE_ROLE_BASED_ACCESS || !user?.roles) {
+      return true;
+    }
+    return item.roles.some(role => user.roles.includes(role));
+  });
+
+  return (
+    <>
+      {/* Mobile Overlay */}
+      {isOpen && (
+        <div 
+          className="sidebar-overlay" 
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      
+      {/* Sidebar */}
+      <aside className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
+        <div className="sidebar-header">
+          <div className="logo">
+            <GraduationCap className="logo-icon" />
+            <span className="logo-text">EduAdmin</span>
+          </div>
+          <button 
+            className="sidebar-close" 
+            onClick={onClose}
+            aria-label="Close sidebar"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* User Info */}
+        <div className="user-info">
+          <div className="user-avatar">
+            <GraduationCap size={24} />
+          </div>
+          <div className="user-details">
+            <div className="user-name">
+              {user?.first_name && user?.last_name 
+                ? `${user.first_name} ${user.last_name}`
+                : user?.email || 'User'
+              }
+            </div>
+            <div className="user-role">
+              {user?.roles ? user.roles.map(role => role.charAt(0).toUpperCase() + role.slice(1)).join(', ') : 'Administrator'}
+            </div>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <nav className="sidebar-nav">
+          <div className="nav-section">
+            <div className="nav-section-title">Navigation</div>
+            <ul className="nav-links">
+              {filteredNavigationItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = isActivePath(item.path);
+                
+                return (
+                  <li key={item.path}>
+                    <button
+                      className={`nav-link ${isActive ? 'active' : ''}`}
+                      onClick={() => {
+                        navigate(item.path);
+                        onClose();
+                      }}
+                      aria-current={isActive ? 'page' : undefined}
+                    >
+                      <Icon className="nav-icon" size={20} />
+                      <span>{item.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </nav>
+
+        {/* Footer Actions */}
+        <div className="sidebar-footer">
+          <button 
+            className="logout-button"
+            onClick={handleLogout}
+            aria-label="Logout"
+          >
+            <LogOut size={20} />
+            <span>Logout</span>
+          </button>
+        </div>
+      </aside>
+    </>
+  );
+};
+
+// Main Layout Component
+const MainLayout = ({ children }) => {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { user } = useAuth();
+  const location = useLocation();
+
+  const getPageTitle = () => {
+    const path = location.pathname;
+    if (path === ENTERPRISE_CONFIG.ROUTES.DASHBOARD) return 'Educational Dashboard';
+    if (path === ENTERPRISE_CONFIG.ROUTES.STUDENT) return 'Student Management';
+    if (path === ENTERPRISE_CONFIG.ROUTES.FACULTY) return 'Faculty Management';
+    if (path === ENTERPRISE_CONFIG.ROUTES.COURSE) return 'Course Management';
+    if (path === ENTERPRISE_CONFIG.ROUTES.ANALYTICS) return 'Analytics & Insights';
+    if (path === ENTERPRISE_CONFIG.ROUTES.REPORTS) return 'Reports & Analytics';
+    if (path === ENTERPRISE_CONFIG.ROUTES.SETTINGS) return 'System Settings';
+    return 'EduAdmin';
+  };
+
+  return (
+    <div className="app-layout">
+      {/* Sidebar */}
+      <Sidebar 
+        isOpen={sidebarOpen} 
+        onClose={() => setSidebarOpen(false)} 
+      />
+
+      {/* Main Content */}
+      <main className="main-content">
+        {/* Top Header */}
+        <header className="top-header">
+          <div className="header-left">
+            <button 
+              className="menu-toggle"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu size={24} />
+            </button>
+            <h1 className="page-title">{getPageTitle()}</h1>
+          </div>
+
+          <div className="header-right">
+            {/* Notifications */}
+            <button className="header-button" aria-label="Notifications">
+              <Bell size={20} />
+              <span className="notification-badge">3</span>
+            </button>
+
+            {/* User Menu */}
+            <div className="user-menu">
+              <div className="user-avatar-small">
+                <GraduationCap size={20} />
+              </div>
+              <div className="user-info-small">
+                <span className="user-name-small">
+                  {user?.first_name && user?.last_name 
+                    ? `${user.first_name} ${user.last_name}`
+                    : user?.email || 'User'
+                  }
+                </span>
+                <span className="user-role-small">
+                  {user?.roles ? user.roles.map(role => role.charAt(0).toUpperCase() + role.slice(1)).join(', ') : 'Admin'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <div className="page-content">
+          {children}
+        </div>
+      </main>
+    </div>
+  );
 };
 
 // Enhanced Error Boundary with Monitoring
@@ -382,7 +612,7 @@ const AppInitializer = ({ children }) => {
   return children;
 };
 
-// Router Content Component - ENTERPRISE READY WITH FIXED ROUTES
+// Router Content Component
 const RouterContent = () => {
   useRouteTracking();
   
@@ -391,17 +621,23 @@ const RouterContent = () => {
       {/* Public Route */}
       <Route 
         path={ENTERPRISE_CONFIG.ROUTES.LOGIN} 
-        element={<LoginPage />} 
+        element={
+          <PublicRoute>
+            <LoginPage />
+          </PublicRoute>
+        } 
       />
       
-      {/* Protected Routes - Using explicit routes for reliability */}
+      {/* Protected Routes with Layout */}
       <Route 
         path={ENTERPRISE_CONFIG.ROUTES.DASHBOARD} 
         element={
           <ProtectedRoute requiredRoles={['admin', 'faculty', 'staff']}>
-            <Suspense fallback={<RouteLoading message="Loading Dashboard..." moduleName="Dashboard" />}>
-              <EduDashboard />
-            </Suspense>
+            <MainLayout>
+              <Suspense fallback={<RouteLoading message="Loading Dashboard..." moduleName="Dashboard" />}>
+                <EduDashboard />
+              </Suspense>
+            </MainLayout>
           </ProtectedRoute>
         } 
       />
@@ -410,9 +646,11 @@ const RouterContent = () => {
         path={ENTERPRISE_CONFIG.ROUTES.STUDENT} 
         element={
           <ProtectedRoute requiredRoles={['admin', 'faculty']}>
-            <Suspense fallback={<RouteLoading message="Loading Student Management..." moduleName="Student Management" />}>
-              <StudentManagement />
-            </Suspense>
+            <MainLayout>
+              <Suspense fallback={<RouteLoading message="Loading Student Management..." moduleName="Student Management" />}>
+                <StudentManagement />
+              </Suspense>
+            </MainLayout>
           </ProtectedRoute>
         } 
       />
@@ -421,9 +659,11 @@ const RouterContent = () => {
         path={ENTERPRISE_CONFIG.ROUTES.FACULTY} 
         element={
           <ProtectedRoute requiredRoles={['admin']}>
-            <Suspense fallback={<RouteLoading message="Loading Faculty Management..." moduleName="Faculty Management" />}>
-              <FacultyManagement />
-            </Suspense>
+            <MainLayout>
+              <Suspense fallback={<RouteLoading message="Loading Faculty Management..." moduleName="Faculty Management" />}>
+                <FacultyManagement />
+              </Suspense>
+            </MainLayout>
           </ProtectedRoute>
         } 
       />
@@ -432,9 +672,11 @@ const RouterContent = () => {
         path={ENTERPRISE_CONFIG.ROUTES.COURSE} 
         element={
           <ProtectedRoute requiredRoles={['admin', 'faculty']}>
-            <Suspense fallback={<RouteLoading message="Loading Course Management..." moduleName="Course Management" />}>
-              <CourseManagement />
-            </Suspense>
+            <MainLayout>
+              <Suspense fallback={<RouteLoading message="Loading Course Management..." moduleName="Course Management" />}>
+                <CourseManagement />
+              </Suspense>
+            </MainLayout>
           </ProtectedRoute>
         } 
       />
@@ -443,9 +685,11 @@ const RouterContent = () => {
         path={ENTERPRISE_CONFIG.ROUTES.ANALYTICS} 
         element={
           <ProtectedRoute requiredRoles={['admin', 'faculty']}>
-            <Suspense fallback={<RouteLoading message="Loading Analytics..." moduleName="Analytics" />}>
-              <Analytics />
-            </Suspense>
+            <MainLayout>
+              <Suspense fallback={<RouteLoading message="Loading Analytics..." moduleName="Analytics" />}>
+                <Analytics />
+              </Suspense>
+            </MainLayout>
           </ProtectedRoute>
         } 
       />
@@ -454,9 +698,11 @@ const RouterContent = () => {
         path={ENTERPRISE_CONFIG.ROUTES.REPORTS} 
         element={
           <ProtectedRoute requiredRoles={['admin', 'faculty', 'staff']}>
-            <Suspense fallback={<RouteLoading message="Loading Reports..." moduleName="Reports" />}>
-              <Reports />
-            </Suspense>
+            <MainLayout>
+              <Suspense fallback={<RouteLoading message="Loading Reports..." moduleName="Reports" />}>
+                <Reports />
+              </Suspense>
+            </MainLayout>
           </ProtectedRoute>
         } 
       />
@@ -465,9 +711,11 @@ const RouterContent = () => {
         path={ENTERPRISE_CONFIG.ROUTES.SETTINGS} 
         element={
           <ProtectedRoute requiredRoles={['admin']}>
-            <Suspense fallback={<RouteLoading message="Loading Settings..." moduleName="Settings" />}>
-              <SettingsPage />
-            </Suspense>
+            <MainLayout>
+              <Suspense fallback={<RouteLoading message="Loading Settings..." moduleName="Settings" />}>
+                <SettingsPage />
+              </Suspense>
+            </MainLayout>
           </ProtectedRoute>
         } 
       />
@@ -483,29 +731,47 @@ const RouterContent = () => {
         } 
       />
       
-      {/* Catch all route */}
-      <Route 
-        path="*" 
-        element={
-          <Navigate to={ENTERPRISE_CONFIG.ROUTES.DASHBOARD} replace />
-        } 
-      />
+      {/* Default redirects */}
+      <Route path="/" element={<Navigate to={ENTERPRISE_CONFIG.ROUTES.DASHBOARD} replace />} />
+      <Route path="*" element={<Navigate to={ENTERPRISE_CONFIG.ROUTES.DASHBOARD} replace />} />
     </Routes>
   );
 };
 
 // Main App Component
 function App() {
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  useEffect(() => {
+    // Simulate app initialization
+    const timer = setTimeout(() => {
+      setIsInitialized(true);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!isInitialized) {
+    return (
+      <div className="app-initialization">
+        <div className="initialization-content">
+          <GraduationCap size={48} className="app-logo" />
+          <h1>EduAdmin</h1>
+          <p>Enterprise Educational Dashboard</p>
+          <div className="loading-spinner"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <EnterpriseErrorBoundary>
       <AuthProvider>
         <Router>
           <AppInitializer>
-            <Suspense fallback={
-              <LoadingSpinner message="Initializing Application..." />
-            }>
+            <div className="App">
               <RouterContent />
-            </Suspense>
+            </div>
           </AppInitializer>
         </Router>
       </AuthProvider>

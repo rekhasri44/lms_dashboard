@@ -1,0 +1,18 @@
+services:
+  - type: static
+    name: eduadmin-frontend
+    buildCommand: npm install && npm run build:prod
+    publishPath: build
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+    envVars:
+      - key: REACT_APP_API_BASE_URL
+        value: https://dashboard-backend-qmy9.onrender.com

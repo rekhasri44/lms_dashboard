@@ -1,3 +1,6 @@
+import { useAuth } from '../context/AuthContext';
+
+// Cache configuration
 const responseCache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
@@ -23,6 +26,13 @@ const getCache = (key) => {
   return null;
 };
 
+// Base API configuration
+const API_CONFIG = {
+  BASE_URL: process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || 'https://dashboard-backend-qmy9.onrender.com',
+  TIMEOUT: 30000,
+  RETRY_ATTEMPTS: 3
+};
+
 // Enterprise API Error Class
 class EnterpriseApiError extends Error {
   constructor(message, status, details = null) {
@@ -46,31 +56,37 @@ class EnterpriseApiError extends Error {
 // Enhanced Enterprise API service with proper error handling, caching, and retry mechanism
 class EnterpriseApiService {
   constructor() {
-    // FIXED: Remove any trailing slashes and ensure /api/v1 path
-    let base = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
-    base = base.replace(/\/$/, ''); // Remove trailing slash
-    this.baseURL = `${base}/api/v1`; // Always add /api/v1 for enterprise
-    this.defaultHeaders = {
-      'Content-Type': 'application/json',
-    };
-    console.log('Enterprise API Base URL configured:', this.baseURL);
+    let base = API_CONFIG.BASE_URL;
+    base = base.replace(/\/$/, '');
+    this.baseURL = base;
+    console.log('Production API Base URL:', this.baseURL);
   }
 
   async request(endpoint, options = {}) {
     const token = localStorage.getItem('enterprise_access_token') || localStorage.getItem('access_token') || localStorage.getItem('token');
     
+    const defaultHeaders = {
+      'Content-Type': 'application/json',
+    };
+
+    if (token) {
+      defaultHeaders['Authorization'] = `Bearer ${token}`;
+    }
+
     const config = {
       headers: {
-        ...this.defaultHeaders,
-        ...(token && { Authorization: `Bearer ${token}` }),
+        ...defaultHeaders,
         ...options.headers,
       },
+      timeout: API_CONFIG.TIMEOUT,
       ...options,
     };
 
     // Handle request body
     if (config.body && typeof config.body === 'object' && !(config.body instanceof FormData)) {
       config.body = JSON.stringify(config.body);
+    } else if (options.data && (options.method === 'POST' || options.method === 'PUT' || options.method === 'PATCH')) {
+      config.body = JSON.stringify(options.data);
     }
 
     // Check cache for GET requests
@@ -84,7 +100,10 @@ class EnterpriseApiService {
     }
 
     try {
-      const response = await fetch(`${this.baseURL}${endpoint}`, config);
+      const url = `${this.baseURL}${endpoint}`;
+      console.log(`Making API call to: ${url}`, config);
+      
+      const response = await fetch(url, config);
       
       // Handle 401 Unauthorized with token refresh
       if (response.status === 401) {
@@ -94,7 +113,7 @@ class EnterpriseApiService {
           const newToken = localStorage.getItem('enterprise_access_token') || localStorage.getItem('access_token');
           if (newToken) {
             config.headers.Authorization = `Bearer ${newToken}`;
-            const retryResponse = await fetch(`${this.baseURL}${endpoint}`, config);
+            const retryResponse = await fetch(url, config);
             
             if (!retryResponse.ok) {
               throw new Error(`Retry failed with status: ${retryResponse.status}`);
@@ -136,8 +155,15 @@ class EnterpriseApiService {
         }
         throw new EnterpriseApiError(errorMessage, response.status, errorDetails);
       }
-      
-      const data = await response.json();
+
+      // Handle empty responses
+      const contentType = response.headers.get('content-type');
+      let data;
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        data = { success: true, status: response.status };
+      }
       
       // Cache successful GET responses
       if ((config.method === 'GET' || !config.method) && options.useCache !== false) {
@@ -148,6 +174,11 @@ class EnterpriseApiService {
       return { success: true, data };
     } catch (error) {
       console.error('Enterprise API request failed:', error);
+      
+      // Enhanced error messages for better user experience
+      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+        error.message = 'Network error: Unable to connect to the server. Please check your internet connection.';
+      }
       
       // Handle network errors - try cache for GET requests
       if ((config.method === 'GET' || !config.method) && options.useCache !== false && 
@@ -184,7 +215,7 @@ class EnterpriseApiService {
       throw new EnterpriseApiError('No refresh token available', 401);
     }
 
-    const response = await fetch(`${this.baseURL}/auth/refresh`, {
+    const response = await fetch(`${this.baseURL}/api/v1/auth/refresh`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${refreshToken}`,
@@ -205,38 +236,39 @@ class EnterpriseApiService {
     return data.access_token;
   }
 
-  get(endpoint, params = {}, options = {}) {
+  // Generic CRUD operations with enhanced caching
+  async get(endpoint, params = {}, options = {}) {
     const queryString = Object.keys(params).length 
       ? `?${new URLSearchParams(params).toString()}`
       : '';
     return this.request(`${endpoint}${queryString}`, { ...options, method: 'GET' });
   }
 
-  post(endpoint, data, options = {}) {
+  async post(endpoint, data, options = {}) {
     return this.request(endpoint, {
       method: 'POST',
-      body: data,
+      data,
       ...options
     });
   }
 
-  put(endpoint, data, options = {}) {
+  async put(endpoint, data, options = {}) {
     return this.request(endpoint, {
       method: 'PUT',
-      body: data,
+      data,
       ...options
     });
   }
 
-  patch(endpoint, data, options = {}) {
+  async patch(endpoint, data, options = {}) {
     return this.request(endpoint, {
       method: 'PATCH',
-      body: data,
+      data,
       ...options
     });
   }
 
-  delete(endpoint, options = {}) {
+  async delete(endpoint, options = {}) {
     return this.request(endpoint, {
       method: 'DELETE',
       ...options
@@ -268,7 +300,10 @@ class EnterpriseApiService {
     return this.request(endpoint, {
       method: 'POST',
       body: formData,
-      ...options
+      ...options,
+      headers: {
+        // Don't set Content-Type for FormData, let browser set it
+      }
     });
   }
 
@@ -343,11 +378,17 @@ class EnterpriseApiService {
 // Create API instance
 const api = new EnterpriseApiService();
 
-// Enhanced API methods with proper error handling
+// Enhanced API methods with proper error handling and fixed endpoints
 export const authAPI = {
   login: async (credentials) => {
     try {
-      const result = await api.post('/auth/login', credentials);
+      // Try new endpoint first, then fallback to legacy
+      let result = await api.post('/api/v1/auth/login', credentials);
+      
+      if (!result.success) {
+        // Fallback to legacy endpoint
+        result = await api.post('/api/auth/login', credentials);
+      }
       
       if (result.success && result.data) {
         // Handle different response formats from backend
@@ -407,7 +448,15 @@ export const authAPI = {
       localStorage.removeItem('access_token');
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      await api.post('/auth/logout');
+      
+      // Try to call logout endpoint
+      try {
+        await api.post('/api/v1/auth/logout');
+      } catch (e) {
+        // Silently fail logout API call
+        console.log('Logout API call failed, continuing with client cleanup');
+      }
+      
       return { success: true };
     } catch (error) {
       console.error('Logout error:', error);
@@ -417,7 +466,13 @@ export const authAPI = {
 
   getProfile: async () => {
     try {
-      const result = await api.get('/auth/profile');
+      // Try multiple endpoints
+      let result = await api.get('/api/v1/auth/me');
+      
+      if (!result.success) {
+        result = await api.get('/api/auth/profile');
+      }
+      
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch profile' };
@@ -431,7 +486,12 @@ export const authAPI = {
 
   updateProfile: async (data) => {
     try {
-      const result = await api.put('/auth/profile', data);
+      let result = await api.put('/api/v1/auth/profile', data);
+      
+      if (!result.success) {
+        result = await api.put('/api/auth/profile', data);
+      }
+      
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to update profile' };
@@ -445,7 +505,7 @@ export const authAPI = {
 
   refreshToken: async () => {
     try {
-      const result = await api.post('/auth/refresh');
+      const result = await api.post('/api/v1/auth/refresh');
       if (result.success && result.data) {
         if (result.data.access_token) {
           localStorage.setItem('enterprise_access_token', result.data.access_token);
@@ -460,7 +520,12 @@ export const authAPI = {
 
   changePassword: async (data) => {
     try {
-      const result = await api.put('/auth/change-password', data);
+      let result = await api.put('/api/v1/auth/password', data);
+      
+      if (!result.success) {
+        result = await api.put('/api/auth/change-password', data);
+      }
+      
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to change password' };
@@ -470,14 +535,28 @@ export const authAPI = {
         error: error.message || 'Failed to change password' 
       };
     }
+  },
+
+  getCurrentUser: async () => {
+    try {
+      const result = await api.get('/api/v1/auth/me');
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to fetch current user' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to fetch current user' 
+      };
+    }
   }
 };
 
-// Students API
+// Students API with fixed endpoints
 export const studentsAPI = {
   getStudents: async (params = {}) => {
     try {
-      const result = await api.get('/students', params);
+      const result = await api.get('/api/v1/students', params);
       return result.success
         ? { success: true, data: result.data, cached: result.cached || false }
         : { success: false, error: result.error || 'Failed to fetch students' };
@@ -491,7 +570,7 @@ export const studentsAPI = {
   
   getStudent: async (id) => {
     try {
-      const result = await api.get(`/students/${id}`);
+      const result = await api.get(`/api/v1/students/${id}`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch student' };
@@ -502,12 +581,26 @@ export const studentsAPI = {
       };
     }
   },
+
+  getStudentDetails: async (studentId) => {
+    try {
+      const result = await api.get(`/api/v1/students/${studentId}`);
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to fetch student details' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to fetch student details' 
+      };
+    }
+  },
   
   createStudent: async (data) => {
     try {
-      const result = await api.post('/students', data);
+      const result = await api.post('/api/v1/students', data);
       // Invalidate students cache
-      api.clearCacheForEndpoint('/students');
+      api.clearCacheForEndpoint('/api/v1/students');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to create student' };
@@ -521,9 +614,9 @@ export const studentsAPI = {
   
   updateStudent: async (id, data) => {
     try {
-      const result = await api.put(`/students/${id}`, data);
+      const result = await api.put(`/api/v1/students/${id}`, data);
       // Invalidate students cache
-      api.clearCacheForEndpoint('/students');
+      api.clearCacheForEndpoint('/api/v1/students');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to update student' };
@@ -537,9 +630,9 @@ export const studentsAPI = {
   
   deleteStudent: async (id) => {
     try {
-      const result = await api.delete(`/students/${id}`);
+      const result = await api.delete(`/api/v1/students/${id}`);
       // Invalidate students cache
-      api.clearCacheForEndpoint('/students');
+      api.clearCacheForEndpoint('/api/v1/students');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to delete student' };
@@ -553,7 +646,7 @@ export const studentsAPI = {
   
   getAtRiskStudents: async () => {
     try {
-      const result = await api.get('/students/at-risk');
+      const result = await api.get('/api/v1/students/at-risk');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch at-risk students' };
@@ -567,7 +660,7 @@ export const studentsAPI = {
   
   createIntervention: async (studentId, data) => {
     try {
-      const result = await api.post(`/students/${studentId}/interventions`, data);
+      const result = await api.post(`/api/v1/students/${studentId}/interventions`, data);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to create intervention' };
@@ -581,7 +674,7 @@ export const studentsAPI = {
   
   getStudentPerformance: async (studentId) => {
     try {
-      const result = await api.get(`/students/${studentId}/performance`);
+      const result = await api.get(`/api/v1/students/${studentId}/performance`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch student performance' };
@@ -595,7 +688,7 @@ export const studentsAPI = {
   
   exportStudents: async () => {
     try {
-      const result = await api.getBlob('/students/export');
+      const result = await api.getBlob('/api/v1/students/export');
       return result;
     } catch (error) {
       return { 
@@ -607,7 +700,7 @@ export const studentsAPI = {
   
   getStudentEngagement: async (studentId) => {
     try {
-      const result = await api.get(`/students/${studentId}/engagement`);
+      const result = await api.get(`/api/v1/students/${studentId}/engagement`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch student engagement' };
@@ -621,7 +714,7 @@ export const studentsAPI = {
   
   getStudentAttendance: async (studentId) => {
     try {
-      const result = await api.get(`/students/${studentId}/attendance`);
+      const result = await api.get(`/api/v1/students/${studentId}/attendance`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch student attendance' };
@@ -636,12 +729,12 @@ export const studentsAPI = {
   uploadStudentPhoto: async (studentId, file, onProgress = null) => {
     try {
       if (onProgress) {
-        const result = await api.upload(`/students/${studentId}/photo`, file, onProgress);
+        const result = await api.upload(`/api/v1/students/${studentId}/photo`, file, onProgress);
         return result;
       } else {
         const formData = new FormData();
         formData.append('photo', file);
-        const result = await api.uploadFile(`/students/${studentId}/photo`, formData);
+        const result = await api.uploadFile(`/api/v1/students/${studentId}/photo`, formData);
         return result;
       }
     } catch (error) {
@@ -650,11 +743,11 @@ export const studentsAPI = {
   }
 };
 
-// Faculty API
+// Faculty API with fixed endpoints
 export const facultyAPI = {
   getFaculty: async (params = {}) => {
     try {
-      const result = await api.get('/faculty', params);
+      const result = await api.get('/api/v1/faculty', params);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch faculty' };
@@ -668,7 +761,7 @@ export const facultyAPI = {
   
   getFacultyMember: async (id) => {
     try {
-      const result = await api.get(`/faculty/${id}`);
+      const result = await api.get(`/api/v1/faculty/${id}`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch faculty member' };
@@ -679,10 +772,38 @@ export const facultyAPI = {
       };
     }
   },
+
+  getFacultyDetails: async (facultyId) => {
+    try {
+      const result = await api.get(`/api/v1/faculty/${facultyId}`);
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to fetch faculty details' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to fetch faculty details' 
+      };
+    }
+  },
+  
+  createFaculty: async (data) => {
+    try {
+      const result = await api.post('/api/v1/faculty', data);
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to create faculty' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to create faculty' 
+      };
+    }
+  },
   
   updateFaculty: async (id, data) => {
     try {
-      const result = await api.put(`/faculty/${id}`, data);
+      const result = await api.put(`/api/v1/faculty/${id}`, data);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to update faculty' };
@@ -694,9 +815,23 @@ export const facultyAPI = {
     }
   },
   
+  deleteFaculty: async (id) => {
+    try {
+      const result = await api.delete(`/api/v1/faculty/${id}`);
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to delete faculty' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to delete faculty' 
+      };
+    }
+  },
+  
   getFacultyWorkload: async () => {
     try {
-      const result = await api.get('/faculty/workload');
+      const result = await api.get('/api/v1/faculty/workload');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch faculty workload' };
@@ -710,7 +845,7 @@ export const facultyAPI = {
   
   getFacultyCourses: async (id) => {
     try {
-      const result = await api.get(`/faculty/${id}/courses`);
+      const result = await api.get(`/api/v1/faculty/${id}/courses`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch faculty courses' };
@@ -724,7 +859,7 @@ export const facultyAPI = {
   
   getFacultyPerformance: async (id) => {
     try {
-      const result = await api.get(`/faculty/${id}/performance`);
+      const result = await api.get(`/api/v1/faculty/${id}/performance`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch faculty performance' };
@@ -738,7 +873,7 @@ export const facultyAPI = {
   
   getFacultyList: async () => {
     try {
-      const result = await api.get('/faculty/list');
+      const result = await api.get('/api/v1/faculty/list');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch faculty list' };
@@ -752,7 +887,7 @@ export const facultyAPI = {
   
   getFacultyAnalytics: async () => {
     try {
-      const result = await api.get('/faculty/analytics');
+      const result = await api.get('/api/v1/faculty/analytics');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch faculty analytics' };
@@ -762,14 +897,26 @@ export const facultyAPI = {
         error: error.message || 'Failed to fetch faculty analytics' 
       };
     }
+  },
+
+  exportFaculty: async () => {
+    try {
+      const result = await api.getBlob('/api/v1/faculty/export');
+      return result;
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to export faculty' 
+      };
+    }
   }
 };
 
-// Courses API
+// Courses API with fixed endpoints
 export const coursesAPI = {
   getCourses: async (params = {}) => {
     try {
-      const result = await api.get('/courses', params);
+      const result = await api.get('/api/v1/courses', params);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch courses' };
@@ -783,7 +930,7 @@ export const coursesAPI = {
   
   createCourse: async (data) => {
     try {
-      const result = await api.post('/courses', data);
+      const result = await api.post('/api/v1/courses', data);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to create course' };
@@ -797,7 +944,7 @@ export const coursesAPI = {
   
   getCourse: async (id) => {
     try {
-      const result = await api.get(`/courses/${id}`);
+      const result = await api.get(`/api/v1/courses/${id}`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch course' };
@@ -811,7 +958,7 @@ export const coursesAPI = {
   
   updateCourse: async (id, data) => {
     try {
-      const result = await api.put(`/courses/${id}`, data);
+      const result = await api.put(`/api/v1/courses/${id}`, data);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to update course' };
@@ -825,7 +972,7 @@ export const coursesAPI = {
   
   deleteCourse: async (id) => {
     try {
-      const result = await api.delete(`/courses/${id}`);
+      const result = await api.delete(`/api/v1/courses/${id}`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to delete course' };
@@ -837,9 +984,9 @@ export const coursesAPI = {
     }
   },
   
-  getCourseSections: async (id) => {
+  getCourseSections: async (params = {}) => {
     try {
-      const result = await api.get(`/courses/${id}/sections`);
+      const result = await api.get('/api/v1/courses/sections', params);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch course sections' };
@@ -853,7 +1000,7 @@ export const coursesAPI = {
   
   createCourseSection: async (courseId, data) => {
     try {
-      const result = await api.post('/courses/sections', { ...data, course_id: courseId });
+      const result = await api.post('/api/v1/courses/sections', { ...data, course_id: courseId });
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to create course section' };
@@ -867,7 +1014,7 @@ export const coursesAPI = {
   
   getEnrollmentStats: async () => {
     try {
-      const result = await api.get('/courses/enrollment-stats');
+      const result = await api.get('/api/v1/courses/enrollment-stats');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch enrollment stats' };
@@ -881,7 +1028,7 @@ export const coursesAPI = {
   
   exportCourses: async () => {
     try {
-      const result = await api.getBlob('/courses/export');
+      const result = await api.getBlob('/api/v1/courses/export');
       return result;
     } catch (error) {
       return { 
@@ -893,7 +1040,7 @@ export const coursesAPI = {
   
   getCourseAnalytics: async (id) => {
     try {
-      const result = await api.get(`/courses/${id}/analytics`);
+      const result = await api.get(`/api/v1/courses/${id}/analytics`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch course analytics' };
@@ -907,7 +1054,7 @@ export const coursesAPI = {
   
   getCourseDemand: async () => {
     try {
-      const result = await api.get('/courses/demand-forecast');
+      const result = await api.get('/api/v1/courses/demand-forecast');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch course demand' };
@@ -921,7 +1068,7 @@ export const coursesAPI = {
   
   getCoursePerformance: async (id) => {
     try {
-      const result = await api.get(`/courses/${id}/performance`);
+      const result = await api.get(`/api/v1/courses/${id}/performance`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch course performance' };
@@ -938,7 +1085,7 @@ export const coursesAPI = {
 export const departmentsAPI = {
   getDepartments: async () => {
     try {
-      const result = await api.get('/departments/stats');
+      const result = await api.get('/api/v1/departments/stats');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch departments' };
@@ -952,7 +1099,7 @@ export const departmentsAPI = {
   
   getDepartmentStats: async (departmentId) => {
     try {
-      const result = await api.get(`/departments/${departmentId}/stats`);
+      const result = await api.get(`/api/v1/departments/${departmentId}/stats`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch department stats' };
@@ -965,11 +1112,11 @@ export const departmentsAPI = {
   }
 };
 
-// Analytics API
+// Analytics API with fixed endpoints
 export const analyticsAPI = {
   getDashboardOverview: async () => {
     try {
-      const result = await api.get('/dashboard/overview');
+      const result = await api.get('/api/v1/analytics/dashboard/overview');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch dashboard overview' };
@@ -983,7 +1130,7 @@ export const analyticsAPI = {
   
   getPerformanceAnalytics: async () => {
     try {
-      const result = await api.get('/dashboard/analytics/performance');
+      const result = await api.get('/api/v1/analytics/performance/grade-distribution');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch performance analytics' };
@@ -997,7 +1144,7 @@ export const analyticsAPI = {
   
   getEngagementAnalytics: async () => {
     try {
-      const result = await api.get('/dashboard/analytics/engagement');
+      const result = await api.get('/api/v1/analytics/engagement');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch engagement analytics' };
@@ -1011,7 +1158,7 @@ export const analyticsAPI = {
   
   getForecastingAnalytics: async () => {
     try {
-      const result = await api.get('/dashboard/analytics/forecasting');
+      const result = await api.get('/api/v1/analytics/forecasting');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch forecasting analytics' };
@@ -1025,7 +1172,7 @@ export const analyticsAPI = {
   
   getBenchmarkingAnalytics: async () => {
     try {
-      const result = await api.get('/dashboard/analytics/benchmarking');
+      const result = await api.get('/api/v1/analytics/benchmarking');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch benchmarking analytics' };
@@ -1039,7 +1186,7 @@ export const analyticsAPI = {
   
   getResourceUtilization: async () => {
     try {
-      const result = await api.get('/analytics/resource-utilization');
+      const result = await api.get('/api/v1/analytics/resource/utilization');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch resource utilization' };
@@ -1053,7 +1200,7 @@ export const analyticsAPI = {
   
   getGradeDistribution: async () => {
     try {
-      const result = await api.get('/analytics/grade-distribution');
+      const result = await api.get('/api/v1/analytics/grade-distribution');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch grade distribution' };
@@ -1067,7 +1214,7 @@ export const analyticsAPI = {
   
   getDepartmentAnalytics: async () => {
     try {
-      const result = await api.get('/analytics/departments');
+      const result = await api.get('/api/v1/analytics/departments');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch department analytics' };
@@ -1081,7 +1228,7 @@ export const analyticsAPI = {
   
   getStudentRetention: async () => {
     try {
-      const result = await api.get('/analytics/student-retention');
+      const result = await api.get('/api/v1/analytics/performance/student-retention');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch student retention' };
@@ -1095,7 +1242,7 @@ export const analyticsAPI = {
   
   getPredictiveInsights: async () => {
     try {
-      const result = await api.get('/analytics/predictive-insights');
+      const result = await api.get('/api/v1/analytics/predictive/insights');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch predictive insights' };
@@ -1109,7 +1256,7 @@ export const analyticsAPI = {
   
   getRiskAssessment: async () => {
     try {
-      const result = await api.get('/analytics/risk-assessment');
+      const result = await api.get('/api/v1/analytics/risk/assessment');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch risk assessment' };
@@ -1123,7 +1270,7 @@ export const analyticsAPI = {
   
   getFinancialAnalytics: async () => {
     try {
-      const result = await api.get('/analytics/financial');
+      const result = await api.get('/api/v1/analytics/financial/overview');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch financial analytics' };
@@ -1137,7 +1284,7 @@ export const analyticsAPI = {
   
   getAttendanceAnalytics: async () => {
     try {
-      const result = await api.get('/analytics/attendance');
+      const result = await api.get('/api/v1/analytics/attendance');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch attendance analytics' };
@@ -1150,11 +1297,25 @@ export const analyticsAPI = {
   }
 };
 
-// Reports API
+// Reports API with fixed endpoints
 export const reportsAPI = {
+  getReports: async (filters = {}) => {
+    try {
+      const result = await api.get('/api/v1/reports', filters);
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to fetch reports' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to fetch reports' 
+      };
+    }
+  },
+
   getReportTemplates: async () => {
     try {
-      const result = await api.get('/reports');
+      const result = await api.get('/api/v1/reports/templates');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch report templates' };
@@ -1168,7 +1329,7 @@ export const reportsAPI = {
   
   generateReport: async (data) => {
     try {
-      const result = await api.post('/reports/generate', data);
+      const result = await api.post('/api/v1/reports/generate', data);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to generate report' };
@@ -1182,7 +1343,7 @@ export const reportsAPI = {
   
   getReportStatus: async (id) => {
     try {
-      const result = await api.get(`/reports/${id}/status`);
+      const result = await api.get(`/api/v1/reports/${id}/status`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch report status' };
@@ -1196,7 +1357,7 @@ export const reportsAPI = {
   
   scheduleReport: async (data) => {
     try {
-      const result = await api.post('/reports/schedule', data);
+      const result = await api.post('/api/v1/reports/schedule', data);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to schedule report' };
@@ -1210,7 +1371,7 @@ export const reportsAPI = {
   
   getScheduledReports: async () => {
     try {
-      const result = await api.get('/reports/scheduled');
+      const result = await api.get('/api/v1/reports/scheduled');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch scheduled reports' };
@@ -1224,7 +1385,7 @@ export const reportsAPI = {
   
   getFinancialReports: async () => {
     try {
-      const result = await api.get('/reports/financial');
+      const result = await api.get('/api/v1/reports/financial');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch financial reports' };
@@ -1238,7 +1399,7 @@ export const reportsAPI = {
   
   getAcademicReports: async () => {
     try {
-      const result = await api.get('/reports/academic');
+      const result = await api.get('/api/v1/reports/academic');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch academic reports' };
@@ -1252,7 +1413,7 @@ export const reportsAPI = {
   
   getComplianceReports: async () => {
     try {
-      const result = await api.get('/reports/compliance');
+      const result = await api.get('/api/v1/reports/compliance');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch compliance reports' };
@@ -1265,11 +1426,11 @@ export const reportsAPI = {
   }
 };
 
-// System API
+// System API with fixed endpoints
 export const systemAPI = {
-  getAlerts: async () => {
+  getAlerts: async (filters = {}) => {
     try {
-      const result = await api.get('/alerts');
+      const result = await api.get('/api/v1/system/alerts', filters);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch alerts' };
@@ -1280,10 +1441,24 @@ export const systemAPI = {
       };
     }
   },
+
+  getAnnouncements: async (filters = {}) => {
+    try {
+      const result = await api.get('/api/v1/system/announcements', filters);
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to fetch announcements' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to fetch announcements' 
+      };
+    }
+  },
   
   createAlert: async (data) => {
     try {
-      const result = await api.post('/alerts', data);
+      const result = await api.post('/api/v1/system/alerts', data);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to create alert' };
@@ -1297,7 +1472,7 @@ export const systemAPI = {
   
   dismissAlert: async (id) => {
     try {
-      const result = await api.put(`/alerts/${id}/dismiss`);
+      const result = await api.put(`/api/v1/system/alerts/${id}/dismiss`);
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to dismiss alert' };
@@ -1311,7 +1486,7 @@ export const systemAPI = {
   
   getSystemMetrics: async () => {
     try {
-      const result = await api.get('/monitoring/metrics');
+      const result = await api.get('/api/v1/system/monitoring/metrics');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch system metrics' };
@@ -1325,7 +1500,7 @@ export const systemAPI = {
   
   getComplianceStatus: async () => {
     try {
-      const result = await api.get('/monitoring/compliance');
+      const result = await api.get('/api/v1/system/monitoring/compliance');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch compliance status' };
@@ -1339,7 +1514,7 @@ export const systemAPI = {
   
   getSystemHealth: async () => {
     try {
-      const result = await api.get('/monitoring/health');
+      const result = await api.get('/api/v1/system/monitoring/health');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch system health' };
@@ -1353,7 +1528,7 @@ export const systemAPI = {
   
   getPerformanceMetrics: async () => {
     try {
-      const result = await api.get('/monitoring/performance');
+      const result = await api.get('/api/v1/system/monitoring/performance');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch performance metrics' };
@@ -1367,7 +1542,7 @@ export const systemAPI = {
   
   getThresholdMonitoring: async () => {
     try {
-      const result = await api.get('/monitoring/thresholds');
+      const result = await api.get('/api/v1/system/monitoring/thresholds');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch threshold monitoring' };
@@ -1377,6 +1552,34 @@ export const systemAPI = {
         error: error.message || 'Failed to fetch threshold monitoring' 
       };
     }
+  },
+
+  getSystemSettings: async () => {
+    try {
+      const result = await api.get('/api/v1/system/settings');
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to fetch system settings' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to fetch system settings' 
+      };
+    }
+  },
+
+  updateSystemSettings: async (settings) => {
+    try {
+      const result = await api.put('/api/v1/system/settings', { settings });
+      return result.success
+        ? { success: true, data: result.data }
+        : { success: false, error: result.error || 'Failed to update system settings' };
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to update system settings' 
+      };
+    }
   }
 };
 
@@ -1384,7 +1587,7 @@ export const systemAPI = {
 export const financialAPI = {
   getFinancialOverview: async () => {
     try {
-      const result = await api.get('/financial/overview');
+      const result = await api.get('/api/v1/financial/overview');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch financial overview' };
@@ -1398,7 +1601,7 @@ export const financialAPI = {
   
   getFeeCollection: async () => {
     try {
-      const result = await api.get('/financial/fee-collection');
+      const result = await api.get('/api/v1/financial/fee-collection');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch fee collection data' };
@@ -1412,7 +1615,7 @@ export const financialAPI = {
   
   getRevenueAnalytics: async () => {
     try {
-      const result = await api.get('/financial/revenue');
+      const result = await api.get('/api/v1/financial/revenue');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch revenue analytics' };
@@ -1426,7 +1629,7 @@ export const financialAPI = {
   
   getExpenseAnalytics: async () => {
     try {
-      const result = await api.get('/financial/expenses');
+      const result = await api.get('/api/v1/financial/expenses');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch expense analytics' };
@@ -1440,7 +1643,7 @@ export const financialAPI = {
   
   getBudgetAnalytics: async () => {
     try {
-      const result = await api.get('/financial/budget');
+      const result = await api.get('/api/v1/financial/budget');
       return result.success
         ? { success: true, data: result.data }
         : { success: false, error: result.error || 'Failed to fetch budget analytics' };
@@ -1453,41 +1656,37 @@ export const financialAPI = {
   }
 };
 
-// Simple API service for basic operations (from modifications)
-export const simpleApiService = {
-  async login(email, password) {
-    const response = await fetch(`${api.baseURL}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, password }),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    return await response.json();
-  },
-  
-  async getProfile(token) {
-    const response = await fetch(`${api.baseURL}/users/me`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    return await response.json();
-  }
+// Legacy endpoints for backward compatibility
+export const legacyAPI = {
+  login: (credentials) =>
+    api.post('/api/auth/login', credentials),
+
+  logout: () =>
+    api.post('/api/auth/logout'),
+
+  getProfile: () =>
+    api.get('/api/auth/profile'),
+
+  updateProfile: (profileData) =>
+    api.put('/api/auth/profile', profileData)
 };
 
 // Export singleton instance and error class
 export const apiService = api;
 export { EnterpriseApiError };
+
+// Export all APIs for easy access
+export {
+  analyticsAPI,
+  studentsAPI,
+  facultyAPI,
+  coursesAPI,
+  systemAPI,
+  reportsAPI,
+  authAPI,
+  legacyAPI,
+  departmentsAPI,
+  financialAPI
+};
 
 export default api;
