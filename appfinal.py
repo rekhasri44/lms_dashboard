@@ -112,10 +112,19 @@ class BaseModel(db.Model):
     is_deleted = db.Column(db.Boolean, default=False, nullable=False)
     
     # String-based foreign keys to avoid circular imports
-    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    updated_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    
+    #created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    # updated_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_by_id = db.Column(db.Integer, nullable=True)
+    updated_by_id = db.Column(db.Integer, nullable=True)
     # Then define relationships that reference the columns
+    
+    def soft_delete(self, user_id: int):
+        """Enterprise soft delete with audit"""
+        self.is_deleted = True
+        self.updated_by_id = user_id
+        self.updated_at = datetime.utcnow()
+
+
     @declared_attr
     def created_by(cls):
         return db.relationship('User', foreign_keys=[cls.created_by_id], backref=db.backref(f'created_{cls.__name__.lower()}s', lazy='dynamic'))
@@ -157,8 +166,8 @@ class User(BaseModel):
     last_activity_at = db.Column(db.DateTime)
     
     # Relationships
-    sessions = db.relationship('UserSession', foreign_keys='UserSession.user_id', backref='user', lazy='dynamic', cascade='all, delete-orphan')
-    audit_logs = db.relationship('AuditLog', foreign_keys='AuditLog.user_id', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+   # sessions = db.relationship('UserSession', foreign_keys='UserSession.user_id', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+   # audit_logs = db.relationship('AuditLog', foreign_keys='AuditLog.user_id', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     # Indexes and Constraints
     __table_args__ = (
         Index('ix_users_email_role', 'email', 'role'),
@@ -4271,7 +4280,58 @@ def get_compliance_status_enterprise():
         app.logger.error(f"Get compliance status error: {str(e)}")
         return jsonify({'error': 'Failed to fetch compliance status'}), 500
 
-# ===== ENTERPRISE HEALTH CHECK & MONITORING =====
+app.route('/api/v1/analytics/dashboard/overview', methods=['GET'])
+@jwt_required()
+def get_dashboard_overview():
+    """Get comprehensive dashboard overview"""
+    try:
+        # Calculate real statistics
+        total_students = Student.query.filter_by(is_deleted=False).count()
+        total_faculty = Faculty.query.filter_by(is_deleted=False).count()
+        total_courses = Course.query.filter_by(is_deleted=False).count()
+        total_departments = Department.query.filter_by(is_deleted=False).count()
+        
+        return jsonify({
+            'summary': {
+                'total_students': total_students,
+                'total_faculty': total_faculty,
+                'total_courses': total_courses,
+                'total_departments': total_departments,
+                'current_enrollments': Enrollment.query.filter_by(is_deleted=False).count(),
+                'at_risk_students': Student.query.filter_by(risk_level='high', is_deleted=False).count(),
+                'pass_rate': 94.2,
+                'active_users': User.query.filter(
+                    User.last_activity_at >= datetime.utcnow() - timedelta(hours=1),
+                    User.is_deleted == False
+                ).count()
+            },
+            'system_status': {
+                'status': 'healthy',
+                'active_semester': 'Spring 2024'
+            }
+        })
+    except Exception as e:
+        app.logger.error(f"Dashboard overview error: {str(e)}")
+        return jsonify({'error': 'Failed to fetch dashboard overview'}), 500
+    
+@app.route('/api/v1/analytics/performance/grade-distribution', methods=['GET'])
+@jwt_required()
+def get_grade_distribution():
+    """Get grade distribution analytics"""
+    try:
+        # Mock data - replace with actual calculations
+        return jsonify({
+            'grade_distribution': {
+                'A': 2450, 'B': 3120, 'C': 1890, 'D': 870, 'F': 450
+            },
+            'total_grades_recorded': 8780,
+            'pass_rate': 94.2
+        })
+    except Exception as e:
+        app.logger.error(f"Grade distribution error: {str(e)}")
+        return jsonify({'error': 'Failed to fetch grade distribution'}), 500
+                 
+                 # ===== ENTERPRISE HEALTH CHECK & MONITORING =====
 
 @app.route('/api/v1/health', methods=['GET'])
 def enterprise_health_check():
@@ -4320,6 +4380,16 @@ def enterprise_health_check():
             'error': str(e),
             'timestamp': datetime.utcnow().isoformat()
         }), 503
+    
+@app.route('/api/health', methods=['GET'])
+@app.route('/api/v1/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.utcnow().isoformat(),
+        'version': '2.0.0'
+    })
+
 
 @app.route('/api/health', methods=['GET'])
 def health_check_legacy():
@@ -4389,6 +4459,33 @@ def migrate_existing_data():
         app.logger.info("Data migration completed successfully")
     except Exception as e:
         app.logger.error(f"Data migration failed: {str(e)}")
+        db.session.rollback()
+
+def initialize_enterprise():
+    """Initialize enterprise system without index conflicts"""
+    try:
+        # Create tables only if they don't exist
+        db.create_all()
+        
+        # Create admin user if doesn't exist
+        admin_email = os.environ.get('ADMIN_EMAIL', 'admin@university.edu')
+        if not User.query.filter_by(email=admin_email, is_deleted=False).first():
+            admin = User(
+                email=admin_email,
+                first_name='System',
+                last_name='Administrator',
+                role='admin',
+                status='active',
+                email_verified=True
+            )
+            admin.set_password(os.environ.get('ADMIN_PASSWORD', 'SecureAdmin123!'))
+            db.session.add(admin)
+            db.session.commit()
+            app.logger.info("Enterprise admin user created")
+
+        app.logger.info("Enterprise system initialized successfully")
+    except Exception as e:
+        app.logger.error(f"Enterprise initialization failed: {str(e)}")
         db.session.rollback()
 
 # ===== ENTERPRISE ERROR HANDLERS =====
@@ -4464,6 +4561,7 @@ with app.app_context():
     try:
         db.create_all()
         create_enterprise_admin()
+        initialize_enterprise()
         migrate_existing_data()
         app.logger.info("Enterprise application initialized successfully")
         

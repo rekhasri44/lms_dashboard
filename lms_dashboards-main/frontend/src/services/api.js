@@ -379,7 +379,7 @@ class EnterpriseApiService {
 const api = new EnterpriseApiService();
 
 // Enhanced API methods with proper error handling and fixed endpoints
-export const authAPI = {
+const authAPI = {
   login: async (credentials) => {
     try {
       // Try new endpoint first, then fallback to legacy
@@ -553,7 +553,7 @@ export const authAPI = {
 };
 
 // Students API with fixed endpoints
-export const studentsAPI = {
+const studentsAPI = {
   getStudents: async (params = {}) => {
     try {
       const result = await api.get('/api/v1/students', params);
@@ -744,7 +744,7 @@ export const studentsAPI = {
 };
 
 // Faculty API with fixed endpoints
-export const facultyAPI = {
+const facultyAPI = {
   getFaculty: async (params = {}) => {
     try {
       const result = await api.get('/api/v1/faculty', params);
@@ -913,7 +913,7 @@ export const facultyAPI = {
 };
 
 // Courses API with fixed endpoints
-export const coursesAPI = {
+const coursesAPI = {
   getCourses: async (params = {}) => {
     try {
       const result = await api.get('/api/v1/courses', params);
@@ -1082,7 +1082,7 @@ export const coursesAPI = {
 };
 
 // Departments API
-export const departmentsAPI = {
+const departmentsAPI = {
   getDepartments: async () => {
     try {
       const result = await api.get('/api/v1/departments/stats');
@@ -1113,7 +1113,7 @@ export const departmentsAPI = {
 };
 
 // Analytics API with fixed endpoints
-export const analyticsAPI = {
+const analyticsAPI = {
   getDashboardOverview: async () => {
     try {
       const result = await api.get('/api/v1/analytics/dashboard/overview');
@@ -1298,7 +1298,7 @@ export const analyticsAPI = {
 };
 
 // Reports API with fixed endpoints
-export const reportsAPI = {
+const reportsAPI = {
   getReports: async (filters = {}) => {
     try {
       const result = await api.get('/api/v1/reports', filters);
@@ -1427,7 +1427,7 @@ export const reportsAPI = {
 };
 
 // System API with fixed endpoints
-export const systemAPI = {
+const systemAPI = {
   getAlerts: async (filters = {}) => {
     try {
       const result = await api.get('/api/v1/system/alerts', filters);
@@ -1584,7 +1584,7 @@ export const systemAPI = {
 };
 
 // Financial API
-export const financialAPI = {
+const financialAPI = {
   getFinancialOverview: async () => {
     try {
       const result = await api.get('/api/v1/financial/overview');
@@ -1657,7 +1657,7 @@ export const financialAPI = {
 };
 
 // Legacy endpoints for backward compatibility
-export const legacyAPI = {
+const legacyAPI = {
   login: (credentials) =>
     api.post('/api/auth/login', credentials),
 
@@ -1672,21 +1672,21 @@ export const legacyAPI = {
 };
 
 // Export singleton instance and error class
-export const apiService = api;
+const apiService = api;
 export { EnterpriseApiError };
 
 // Export all APIs for easy access
 export {
-  analyticsAPI,
+  authAPI,
   studentsAPI,
   facultyAPI,
   coursesAPI,
-  systemAPI,
-  reportsAPI,
-  authAPI,
-  legacyAPI,
   departmentsAPI,
-  financialAPI
+  analyticsAPI,
+  reportsAPI,
+  systemAPI,
+  financialAPI,
+  legacyAPI
 };
 
 export default api;

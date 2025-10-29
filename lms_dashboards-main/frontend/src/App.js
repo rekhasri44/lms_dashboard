@@ -2,6 +2,8 @@ import React, { lazy, Suspense, useEffect, useCallback, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginPage from "./components/LoginPage";
+
+
 import { 
   BarChart3, 
   Users, 
@@ -14,7 +16,6 @@ import {
   X,
   Bell
 } from 'lucide-react';
-import "./App.css";
 
 // Enterprise Configuration
 const ENTERPRISE_CONFIG = {
